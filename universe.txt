@@ -1,0 +1,6 @@
+FOOD=100;
+cell_name="Preon_Systems";
+cell_appetite=2;
+cell_x=0;
+cell_y=0;
+REJECT_RANDOMLY=true;
