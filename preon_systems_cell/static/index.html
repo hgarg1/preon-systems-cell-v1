@@ -3,168 +3,231 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Preon Systems Cell</title>
+    <title>Preon Systems | Cell Simulation Engine</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <main class="shell">
-      <section class="hero">
-        <div>
-          <p class="eyebrow">Preon Systems Cell</p>
-          <h1>Design a cell, place it in space, and run the simulation.</h1>
-          <p class="lede">
-            One FastAPI server, one workspace: shape the scenario JSON, seed a cell at x/y/z, validate, then inspect the
-            run artifacts without leaving the page.
-          </p>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="brand">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="logo"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          <div class="brand-text">
+            <h1>Preon Systems</h1>
+            <p>Cell v1 Simulation Engine</p>
+          </div>
         </div>
-        <div class="hero-meta">
-          <article class="hero-card">
-            <span>Workflow</span>
-            <strong>Create, validate, run</strong>
-          </article>
-          <article class="hero-card">
-            <span>Coordinates</span>
-            <strong>Native x / y / z support</strong>
-          </article>
-          <article class="hero-card">
-            <span>Output</span>
-            <strong>Structured JSON artifacts</strong>
-          </article>
+        
+        <div class="header-center">
+          <div id="status" class="status-pill idle">
+            <span class="status-dot"></span>
+            <span class="status-text">System Idle</span>
+          </div>
         </div>
-      </section>
 
-      <section class="workspace">
-        <aside class="control-rail">
-          <section class="panel action-panel">
-            <div class="panel-header compact">
-              <div>
-                <p class="panel-kicker">Command deck</p>
-                <h2>Actions</h2>
-              </div>
-              <span id="status" class="status idle">Idle</span>
-            </div>
-            <div class="action-grid">
-              <button id="load-default" type="button">Load default</button>
-              <button id="create-cell" type="button">Create cell</button>
-              <button id="validate" type="button">Validate</button>
-              <button id="run" type="button" class="primary">Run simulation</button>
-            </div>
-            <p id="activity" class="activity">
-              Load a scenario or edit the JSON directly, then validate or run it.
-            </p>
-          </section>
+        <div class="header-actions">
+          <button id="load-default" class="btn-subtle" title="Reset to defaults">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M3 21v-5h5"></path></svg>
+            <span>Defaults</span>
+          </button>
+          <button id="run" class="btn-primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            <span>Run Simulation</span>
+          </button>
+        </div>
+      </header>
 
-          <section class="panel controls">
-            <div class="panel-header compact">
-              <div>
-                <p class="panel-kicker">Runtime</p>
-                <h2>Parameters</h2>
-              </div>
+      <main class="app-content">
+        <!-- Sidebar: Configuration & Controls -->
+        <aside class="sidebar">
+          <div class="panel">
+            <div class="panel-header">
+              <h2>Runtime Parameters</h2>
             </div>
-            <div class="field-grid">
-              <label>
-                Seed
+            <div class="panel-body">
+              <div class="input-group">
+                <label for="seed">Deterministic Seed</label>
                 <input id="seed" type="number" value="7" />
-              </label>
-              <label>
-                Max steps
-                <input id="max-steps" type="number" placeholder="Scenario default" />
-              </label>
-              <label>
-                dt override
-                <input id="dt" type="number" step="0.1" placeholder="Scenario default" />
-              </label>
-            </div>
-            <div class="coordinate-grid">
-              <label>
-                X
-                <input id="cell-x" type="number" step="0.1" value="0" />
-              </label>
-              <label>
-                Y
-                <input id="cell-y" type="number" step="0.1" value="0" />
-              </label>
-              <label>
-                Z
-                <input id="cell-z" type="number" step="0.1" value="0" />
-              </label>
-            </div>
-            <p class="hint">Coordinates are applied when you create a cell and persisted back into the scenario JSON.</p>
-          </section>
-
-          <section class="panel mini-panel">
-            <div class="panel-header compact">
-              <div>
-                <p class="panel-kicker">API trace</p>
-                <h2>Last request</h2>
+              </div>
+              <div class="input-row">
+                <div class="input-group">
+                  <label for="max-steps">Max Steps</label>
+                  <input id="max-steps" type="number" placeholder="Auto" />
+                </div>
+                <div class="input-group">
+                  <label for="dt">dt Override</label>
+                  <input id="dt" type="number" step="0.1" placeholder="Auto" />
+                </div>
               </div>
             </div>
-            <dl id="request-meta" class="meta-list">
-              <div><dt>Endpoint</dt><dd>None</dd></div>
-              <div><dt>When</dt><dd>Not yet run</dd></div>
-              <div><dt>Outcome</dt><dd>Idle</dd></div>
-            </dl>
-          </section>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h2>Spatial Placement</h2>
+            </div>
+            <div class="panel-body">
+              <div class="coordinate-input">
+                <div class="coord">
+                  <label>X</label>
+                  <input id="cell-x" type="number" step="0.1" value="0" />
+                </div>
+                <div class="coord">
+                  <label>Y</label>
+                  <input id="cell-y" type="number" step="0.1" value="0" />
+                </div>
+                <div class="coord">
+                  <label>Z</label>
+                  <input id="cell-z" type="number" step="0.1" value="0" />
+                </div>
+              </div>
+              <button id="create-cell" class="btn-secondary w-full">Apply Coordinates</button>
+              <p class="hint">Double-click the cell in the visualizer to reposition it randomly.</p>
+            </div>
+          </div>
+
+          <div class="panel grow">
+            <div class="panel-header">
+              <h2>Operations</h2>
+            </div>
+            <div class="panel-body">
+              <div class="v-stack">
+                <button id="validate" class="btn-ghost w-full justify-start">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  Validate Scenario
+                </button>
+              </div>
+              <div id="activity" class="activity-log">
+                Ready for input. Load a scenario to begin.
+              </div>
+            </div>
+          </div>
         </aside>
 
-        <div class="main-stage">
-          <section class="panel visualizer">
+        <!-- Main Stage: Visualization and Editor -->
+        <div class="stage">
+          <div class="panel visualizer-panel">
             <div class="panel-header">
-              <div>
-                <p class="panel-kicker">Spatial view</p>
-                <h2>3D cell placement</h2>
+              <div class="title-group">
+                <h2>Spatial Visualization</h2>
+                <span id="viz-label" class="badge">Awaiting data</span>
               </div>
-              <div class="viz-header-actions">
-                <span id="viz-label" class="subtle">Orbit with drag, zoom with wheel</span>
-                <button id="viz-fullscreen" type="button" class="viz-fullscreen-button">Fullscreen</button>
-              </div>
+              <button id="viz-fullscreen" class="btn-icon" title="Toggle Fullscreen">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+              </button>
             </div>
-            <div class="viz-stage">
-              <canvas id="space-view" aria-label="3D cell space visualization"></canvas>
-              <div class="viz-overlay">
-                <div class="viz-badge">
-                  <strong id="viz-name">No cell loaded</strong>
-                  <span id="viz-coords">x 0.0000 | y 0.0000 | z 0.0000</span>
+            <div class="viz-container">
+              <canvas id="space-view"></canvas>
+              <div class="viz-hud">
+                <div class="hud-top">
+                  <div class="cell-id">
+                    <span class="label">Target Cell</span>
+                    <strong id="viz-name">None</strong>
+                  </div>
+                  <div class="cell-coords">
+                    <span id="viz-coords">0.000, 0.000, 0.000</span>
+                  </div>
                 </div>
-                <div class="viz-legend">
-                  <span><i class="axis-x"></i>X axis</span>
-                  <span><i class="axis-y"></i>Y axis</span>
-                  <span><i class="axis-z"></i>Z axis</span>
-                </div>
               </div>
             </div>
-          </section>
+          </div>
 
-          <section class="panel editor">
-            <div class="panel-header">
-              <div>
-                <p class="panel-kicker">Scenario</p>
-                <h2>Editable JSON</h2>
+          <div class="editor-panel">
+            <div class="panel">
+              <div class="panel-header">
+                <h2>Scenario JSON</h2>
+                <span class="subtle">Schema v1</span>
               </div>
-              <span class="subtle">Directly backed by the API payload</span>
-            </div>
-            <textarea id="scenario" spellcheck="false"></textarea>
-          </section>
-
-          <section class="panel output">
-            <div class="panel-header">
-              <div>
-                <p class="panel-kicker">Results</p>
-                <h2>Summary and response</h2>
+              <div class="editor-container">
+                <textarea id="scenario" spellcheck="false" placeholder="Paste or edit scenario JSON..."></textarea>
               </div>
-              <span id="response-label" class="subtle">No response yet</span>
             </div>
-            <div id="summary" class="summary">
-              <article class="empty-state">
-                <strong>No run data yet.</strong>
-                <span>Validate a scenario, create a cell, or run the engine to populate this panel.</span>
-              </article>
-            </div>
-            <pre id="response">Waiting for an API action.</pre>
-          </section>
+          </div>
         </div>
-      </section>
-    </main>
+
+        <!-- Right: Results and Metrics -->
+        <aside class="results">
+          <div class="panel">
+            <div class="panel-header">
+              <h2>Performance Metrics</h2>
+            </div>
+            <div id="summary" class="summary-grid">
+              <!-- Dynamically populated -->
+              <div class="empty-results">Run simulation to view metrics.</div>
+            </div>
+          </div>
+
+          <div class="panel grow">
+            <div class="panel-header">
+              <div class="tabs">
+                <button class="tab-btn active" data-tab="response-tab">Response</button>
+                <button class="tab-btn" data-tab="schema-tab">Schema</button>
+              </div>
+              <span id="response-label" class="subtle">Idle</span>
+            </div>
+            <div class="output-container">
+              <div id="response-tab" class="tab-content active">
+                <div id="structured-output" class="structured-output">
+                  <div class="empty-results">Awaiting API interaction...</div>
+                </div>
+                <div class="output-footer">
+                  <button id="open-raw-json" class="btn-ghost btn-sm">View Raw JSON</button>
+                </div>
+              </div>
+              <div id="schema-tab" class="tab-content">
+                <div class="schema-view">
+                  <div class="schema-section">
+                    <h3>Scenario (v1)</h3>
+                    <ul class="schema-list">
+                      <li><b>environment:</b> nutrient_concentration, replenishment_rate, toxicity_rate</li>
+                      <li><b>transport:</b> uptake_rate, atp_cost_per_unit</li>
+                      <li><b>metabolism:</b> atp_yield_per_nutrient, waste_per_nutrient</li>
+                      <li><b>maintenance:</b> basal_atp_cost, membrane_decay, repair_rate, growth_atp_cost</li>
+                      <li><b>cell:</b> initial_atp, nutrient_reserve, membrane_integrity, biomass, x, y, z</li>
+                    </ul>
+                  </div>
+                  <div class="schema-section">
+                    <h3>Simulation</h3>
+                    <ul class="schema-list">
+                      <li><b>max_steps:</b> int (default: 100)</li>
+                      <li><b>dt:</b> float (default: 1.0)</li>
+                      <li><b>seed:</b> int (deterministic)</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel mini">
+            <div class="panel-header">
+              <h2>API Trace</h2>
+            </div>
+            <div id="request-meta" class="trace-info">
+              <div class="trace-row"><span class="label">Route</span><span class="value">-</span></div>
+              <div class="trace-row"><span class="label">Time</span><span class="value">-</span></div>
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <!-- Raw JSON Modal -->
+    <div id="json-modal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Raw API Response</h2>
+          <button id="close-json-modal" class="btn-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <pre id="response-raw">{}</pre>
+        </div>
+        <div class="modal-footer">
+          <button id="copy-json" class="btn-secondary">Copy to Clipboard</button>
+        </div>
+      </div>
+    </div>
 
     <script src="/static/app.js" defer></script>
   </body>

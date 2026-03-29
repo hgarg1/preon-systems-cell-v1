@@ -5,7 +5,8 @@ const dtInput = document.getElementById("dt");
 const cellXInput = document.getElementById("cell-x");
 const cellYInput = document.getElementById("cell-y");
 const cellZInput = document.getElementById("cell-z");
-const responseEl = document.getElementById("response");
+const responseRawEl = document.getElementById("response-raw");
+const structuredOutputEl = document.getElementById("structured-output");
 const summaryEl = document.getElementById("summary");
 const statusEl = document.getElementById("status");
 const activityEl = document.getElementById("activity");
@@ -16,10 +17,16 @@ const vizNameEl = document.getElementById("viz-name");
 const vizCoordsEl = document.getElementById("viz-coords");
 const canvasEl = document.getElementById("space-view");
 const vizFullscreenButton = document.getElementById("viz-fullscreen");
-const visualizerPanelEl = document.querySelector(".visualizer");
+const visualizerPanelEl = document.querySelector(".visualizer-panel");
+const jsonModalEl = document.getElementById("json-modal");
+const openJsonBtn = document.getElementById("open-raw-json");
+const closeJsonBtn = document.getElementById("close-json-modal");
+const copyJsonBtn = document.getElementById("copy-json");
+
 let viewer;
 let editorSyncTimer = null;
 
+// Initialization
 document.getElementById("load-default").addEventListener("click", loadDefaultScenario);
 document.getElementById("create-cell").addEventListener("click", createCell);
 document.getElementById("validate").addEventListener("click", () => submit("/api/validate"));
@@ -28,26 +35,46 @@ scenarioInput.addEventListener("input", handleScenarioEditorInput);
 vizFullscreenButton.addEventListener("click", toggleVisualizationFullscreen);
 document.addEventListener("fullscreenchange", handleFullscreenChange);
 
+// Modal Logic
+openJsonBtn.addEventListener("click", () => jsonModalEl.classList.add("active"));
+closeJsonBtn.addEventListener("click", () => jsonModalEl.classList.remove("active"));
+jsonModalEl.addEventListener("click", (e) => { if (e.target === jsonModalEl) jsonModalEl.classList.remove("active"); });
+copyJsonBtn.addEventListener("click", () => {
+  navigator.clipboard.writeText(responseRawEl.textContent).then(() => {
+    const originalText = copyJsonBtn.textContent;
+    copyJsonBtn.textContent = "Copied!";
+    setTimeout(() => { copyJsonBtn.textContent = originalText; }, 2000);
+  });
+});
+
+// Tab Switching
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".tab-content").forEach((c) => c.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(btn.dataset.tab).classList.add("active");
+  });
+});
+
 async function loadDefaultScenario() {
-  setStatus("busy", "Loading");
-  setActivity("Fetching the bundled default scenario.");
+  setStatus("busy", "Loading Defaults...");
+  setActivity("Fetching engine defaults from the server.");
   try {
+    // Clear trail immediately when loading defaults
+    if (viewer) {
+      viewer.trajectory = [];
+      viewer.playbackActive = false;
+    }
     const response = await fetch("/api/default-scenario");
     const payload = await response.json();
-    scenarioInput.value = JSON.stringify(payload.scenario, null, 2);
-    responseEl.textContent = JSON.stringify(payload, null, 2);
-    renderSummary({ scenario: payload.scenario, loaded: true });
-    updateVisualizationFromScenario(payload.scenario, "Scenario defaults");
-    updateRequestMeta("/api/default-scenario", "Loaded");
-    responseLabelEl.textContent = "Default scenario payload";
-    setStatus("ok", "Ready");
-    setActivity("Default scenario loaded. You can now edit JSON, create a cell, validate, or run.");
+    updateAppState(payload, "Engine Defaults Loaded");
+    setStatus("ok", "Defaults Loaded");
+    setActivity("Engine defaults loaded. The workspace is ready for simulation.");
   } catch (error) {
-    setStatus("error", "Load failed");
-    responseEl.textContent = String(error);
-    responseLabelEl.textContent = "Load failed";
-    updateRequestMeta("/api/default-scenario", "Error");
-    setActivity("The default scenario could not be loaded.");
+    setStatus("error", "Init Failure");
+    renderOutput({ error: String(error) });
+    setActivity("Failed to load engine defaults.");
   }
 }
 
@@ -56,8 +83,8 @@ async function submit(url) {
   try {
     scenario = JSON.parse(scenarioInput.value);
   } catch (error) {
-    setStatus("error", "Bad JSON");
-    responseEl.textContent = `Scenario JSON could not be parsed: ${error}`;
+    setStatus("error", "JSON Syntax Error");
+    renderOutput({ error: `Scenario JSON could not be parsed: ${error}` });
     return;
   }
 
@@ -65,18 +92,20 @@ async function submit(url) {
     scenario,
     seed: Number(seedInput.value || 7),
   };
-  if (maxStepsInput.value) {
-    body.max_steps = Number(maxStepsInput.value);
-  }
-  if (dtInput.value) {
-    body.dt = Number(dtInput.value);
+  if (maxStepsInput.value) body.max_steps = Number(maxStepsInput.value);
+  if (dtInput.value) body.dt = Number(dtInput.value);
+
+  const isRun = url.endsWith("/run");
+  
+  // Clear old trajectory if starting a new run
+  if (isRun && viewer) {
+    viewer.trajectory = [];
+    viewer.playbackActive = false;
   }
 
-  setStatus("busy", url.endsWith("/run") ? "Running" : "Validating");
-  setActivity(url.endsWith("/run") ? "Submitting scenario to the run endpoint." : "Submitting scenario validation.");
+  setStatus("busy", isRun ? "Running Simulation..." : "Validating...");
+  setActivity(isRun ? "Executing simulation steps." : "Validating scenario configuration.");
   updateRequestMeta(url, "Pending");
-  responseLabelEl.textContent = `Awaiting response from ${url}`;
-  responseEl.textContent = "";
 
   try {
     const response = await fetch(url, {
@@ -85,23 +114,18 @@ async function submit(url) {
       body: JSON.stringify(body),
     });
     const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(JSON.stringify(payload, null, 2));
-    }
-    responseEl.textContent = JSON.stringify(payload, null, 2);
-    renderSummary(payload);
-    syncVisualizationWithPayload(payload, responseTitleFor(url, payload));
+    if (!response.ok) throw new Error(JSON.stringify(payload, null, 2));
+    
+    updateAppState(payload, responseTitleFor(url, payload));
     updateRequestMeta(url, "OK");
-    responseLabelEl.textContent = responseTitleFor(url, payload);
-    setStatus("ok", "Complete");
+    setStatus("ok", isRun ? "Simulation Complete" : "Validation OK");
     setActivity(activityMessageFor(url, payload));
   } catch (error) {
     renderEmptySummary();
-    responseEl.textContent = String(error);
-    setStatus("error", "Request failed");
+    renderOutput({ error: String(error) });
+    setStatus("error", "Engine Fault");
     updateRequestMeta(url, "Error");
-    responseLabelEl.textContent = `Error from ${url}`;
-    setActivity("The request failed. Inspect the response panel for details.");
+    setActivity("Request failed. Inspect the output panel.");
   }
 }
 
@@ -109,9 +133,8 @@ async function createCell() {
   let scenario;
   try {
     scenario = JSON.parse(scenarioInput.value);
-  } catch (error) {
-    setStatus("error", "Bad JSON");
-    responseEl.textContent = `Scenario JSON could not be parsed: ${error}`;
+  } catch {
+    setStatus("error", "JSON Error");
     return;
   }
 
@@ -123,11 +146,12 @@ async function createCell() {
       z: Number(cellZInput.value || 0),
     },
   };
+  await executeCreateCell(body);
+}
 
-  setStatus("busy", "Creating cell");
-  setActivity("Creating a cell state from the current scenario and x/y/z coordinates.");
+async function executeCreateCell(body) {
+  setStatus("busy", "Syncing State...");
   updateRequestMeta("/api/cells", "Pending");
-  responseLabelEl.textContent = "Awaiting response from /api/cells";
   try {
     const response = await fetch("/api/cells", {
       method: "POST",
@@ -135,48 +159,65 @@ async function createCell() {
       body: JSON.stringify(body),
     });
     const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(JSON.stringify(payload, null, 2));
-    }
-    scenarioInput.value = JSON.stringify(payload.scenario, null, 2);
-    responseEl.textContent = JSON.stringify(payload, null, 2);
-    renderSummary(payload);
-    syncInputsToCell(payload.state.cell);
-    updateVisualizationFromCell(payload.state.cell, "Created cell state");
-    updateRequestMeta("/api/cells", "OK");
-    responseLabelEl.textContent = "Created cell payload";
-    setStatus("ok", "Cell ready");
-    setActivity(`Cell "${payload.state.cell.name}" is ready at ${formatPosition(payload.state.cell)}.`);
+    if (!response.ok) throw new Error(JSON.stringify(payload, null, 2));
+    
+    updateAppState(payload, "Coordinates Applied");
+    updateRequestMeta("/api/cells", "Success");
+    setStatus("ok", "State Synchronized");
+    setActivity(`Cell synced at [${formatPosition(payload.state.cell)}].`);
   } catch (error) {
     renderEmptySummary();
-    responseEl.textContent = String(error);
-    setStatus("error", "Request failed");
+    renderOutput({ error: String(error) });
+    setStatus("error", "Sync Fault");
     updateRequestMeta("/api/cells", "Error");
-    responseLabelEl.textContent = "Error from /api/cells";
-    setActivity("Cell creation failed. Inspect the response panel for details.");
   }
+}
+
+function updateAppState(payload, label = "State Updated") {
+  if (payload.scenario) {
+    scenarioInput.value = JSON.stringify(payload.scenario, null, 2);
+    if (payload.scenario.cell) syncInputsToCell(payload.scenario.cell);
+  }
+  renderOutput(payload);
+  renderSummary(payload);
+  syncVisualizationWithPayload(payload, label);
+}
+
+function renderOutput(payload) {
+  responseRawEl.textContent = JSON.stringify(payload, null, 2);
+  if (!payload || Object.keys(payload).length === 0) {
+    structuredOutputEl.innerHTML = '<div class="empty-results">Awaiting interaction...</div>';
+    return;
+  }
+
+  const items = [];
+  if (payload.metadata) items.push(["Metadata", `v${payload.metadata.engine_version} | Seed ${payload.metadata.seed}`]);
+  if (payload.termination_reason) items.push(["Termination", payload.termination_reason]);
+  if (payload.final_state) items.push(["Final Step", payload.final_state.step]);
+  if (payload.events) items.push(["Events", payload.events.length]);
+  if (typeof payload.valid === "boolean") items.push(["Validation", payload.valid ? "PASSED" : "FAILED"]);
+  if (payload.error) items.push(["Error", payload.error]);
+
+  structuredOutputEl.innerHTML = items.length === 0 ? '<div class="empty-results">No summary available.</div>' : 
+    items.map(([k, v]) => `<div class="output-item"><span class="key">${k}</span><span class="val">${v}</span></div>`).join("");
 }
 
 function renderSummary(payload) {
   const metrics = [];
-  if (payload.loaded && payload.scenario?.cell) {
-    metrics.push(["Scenario", payload.scenario.scenario_name]);
-    metrics.push(["Cell", payload.scenario.cell.name]);
-    metrics.push(["Default ATP", formatValue(payload.scenario.cell.initial_atp)]);
-    metrics.push(["Coords", formatPosition(payload.scenario.cell)]);
+  const scenario = payload.scenario || payload.resolved_scenario;
+  if (payload.loaded && scenario?.cell) {
+    metrics.push(["Position", formatPosition(scenario.cell)]);
+    metrics.push(["Initial ATP", formatValue(scenario.cell.initial_atp)]);
+    metrics.push(["Biomass", formatValue(scenario.cell.biomass)]);
   } else if (payload.state?.cell) {
-    metrics.push(["Cell", payload.state.cell.name]);
-    metrics.push(["ATP", formatValue(payload.state.cell.energy.atp)]);
     metrics.push(["Position", formatPosition(payload.state.cell)]);
+    metrics.push(["ATP Level", formatValue(payload.state.cell.energy.atp)]);
     metrics.push(["Biomass", formatValue(payload.state.cell.biomass)]);
   } else if (payload.final_state) {
+    metrics.push(["Position", formatPosition(payload.final_state.cell)]);
+    metrics.push(["Final ATP", formatValue(payload.final_state.cell.energy.atp)]);
+    metrics.push(["Final Biomass", formatValue(payload.final_state.cell.biomass)]);
     metrics.push(["Steps", payload.final_state.step]);
-    metrics.push(["ATP", formatValue(payload.final_state.cell.energy.atp)]);
-    metrics.push(["Biomass", formatValue(payload.final_state.cell.biomass)]);
-    metrics.push(["Termination", payload.termination_reason ?? "n/a"]);
-  } else if (typeof payload.valid === "boolean") {
-    metrics.push(["Scenario", payload.valid ? "Valid" : "Invalid"]);
-    metrics.push(["Errors", payload.errors?.length ?? 0]);
   }
 
   if (!metrics.length) {
@@ -185,163 +226,152 @@ function renderSummary(payload) {
   }
 
   summaryEl.innerHTML = metrics.map(renderMetric).join("");
+  
+  // Attach event listeners to coordinate inputs in the metrics panel
+  summaryEl.querySelectorAll(".coord-input-mini").forEach(input => {
+    input.addEventListener("change", handleMetricCoordChange);
+  });
 }
 
-function formatValue(value) {
-  return typeof value === "number" ? value.toFixed(4) : value;
-}
+function handleMetricCoordChange() {
+  const x = Number(document.getElementById("metric-coord-x").value);
+  const y = Number(document.getElementById("metric-coord-y").value);
+  const z = Number(document.getElementById("metric-coord-z").value);
+  
+  let scenario;
+  try {
+    scenario = JSON.parse(scenarioInput.value);
+  } catch { return; }
 
-function formatPosition(cell) {
-  return `${formatValue(cell.x)}, ${formatValue(cell.y)}, ${formatValue(cell.z)}`;
-}
-
-function setStatus(kind, text) {
-  statusEl.className = `status ${kind}`;
-  statusEl.textContent = text;
+  executeCreateCell({
+    scenario,
+    cell: { x, y, z }
+  });
 }
 
 function renderMetric([label, value]) {
-  return `<article class="metric"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(String(value))}</span></article>`;
+  if (label === "Position" || label === "Coords") {
+    const parts = String(value).split(", ");
+    return `
+      <div class="metric-card">
+        <span class="label">${escapeHtml(label)}</span>
+        <div class="coord-grid-mini">
+          <input id="metric-coord-x" class="coord-input-mini" type="number" step="0.1" value="${parts[0]}" title="X Coordinate" />
+          <input id="metric-coord-y" class="coord-input-mini" type="number" step="0.1" value="${parts[1]}" title="Y Coordinate" />
+          <input id="metric-coord-z" class="coord-input-mini" type="number" step="0.1" value="${parts[2]}" title="Z Coordinate" />
+        </div>
+      </div>
+    `;
+  }
+  return `<div class="metric-card"><span class="label">${escapeHtml(label)}</span><span class="value">${escapeHtml(String(value))}</span></div>`;
 }
 
 function renderEmptySummary() {
-  summaryEl.innerHTML = `
-    <article class="empty-state">
-      <strong>No run data yet.</strong>
-      <span>Validate a scenario, create a cell, or run the engine to populate this panel.</span>
-    </article>
-  `;
+  summaryEl.innerHTML = '<div class="empty-results">Awaiting simulation results...</div>';
+}
+
+function formatValue(v) { return typeof v === "number" ? v.toFixed(2) : v; }
+function formatPosition(cell) { return `${formatValue(cell.x)}, ${formatValue(cell.y)}, ${formatValue(cell.z)}`; }
+
+function setStatus(kind, text) {
+  statusEl.className = `status-pill ${kind}`;
+  statusEl.querySelector(".status-text").textContent = text;
 }
 
 function updateRequestMeta(endpoint, outcome) {
   requestMetaEl.innerHTML = `
-    <div><dt>Endpoint</dt><dd>${escapeHtml(endpoint)}</dd></div>
-    <div><dt>When</dt><dd>${escapeHtml(new Date().toLocaleString())}</dd></div>
-    <div><dt>Outcome</dt><dd>${escapeHtml(outcome)}</dd></div>
+    <div class="trace-row"><span class="label">Route</span><span class="value">${escapeHtml(endpoint)}</span></div>
+    <div class="trace-row"><span class="label">Time</span><span class="value">${new Date().toLocaleTimeString()}</span></div>
+    <div class="trace-row"><span class="label">Status</span><span class="value">${escapeHtml(outcome)}</span></div>
   `;
 }
 
 function responseTitleFor(url, payload) {
-  if (url === "/api/validate") {
-    return payload.valid ? "Validation report: valid" : "Validation report: invalid";
-  }
-  if (url === "/api/run") {
-    return `Run artifacts for ${payload.metadata?.scenario_name ?? "scenario"}`;
-  }
-  if (url === "/api/step") {
-    return "Single-step simulation result";
-  }
-  return "API response";
+  if (url.endsWith("/validate")) return "Scenario Validated";
+  if (url.endsWith("/run")) return "Run Artifacts";
+  return "State Synchronized";
 }
 
 function activityMessageFor(url, payload) {
-  if (url === "/api/validate") {
-    return payload.valid ? "Scenario validation passed." : "Scenario validation failed.";
-  }
-  if (url === "/api/run") {
-    return `Run completed at step ${payload.final_state?.step ?? "n/a"} with termination ${payload.termination_reason ?? "n/a"}.`;
-  }
-  if (url === "/api/step") {
-    return `Single step executed. New time is ${formatValue(payload.state?.time)}.`;
-  }
-  return "Request completed.";
+  if (url.endsWith("/validate")) return payload.valid ? "Scenario configuration is healthy." : "Validation errors detected.";
+  if (url.endsWith("/run")) return `Run finished. Reason: ${payload.termination_reason || "MAX_STEPS"}.`;
+  return "State updated successfully.";
 }
 
-function setActivity(text) {
-  activityEl.textContent = text;
-}
+function setActivity(text) { activityEl.textContent = text; }
 
 async function toggleVisualizationFullscreen() {
-  if (!document.fullscreenEnabled) {
-    vizLabelEl.textContent = "Fullscreen is not available in this browser";
-    return;
-  }
-  if (document.fullscreenElement === visualizerPanelEl) {
-    await document.exitFullscreen();
-    return;
-  }
-  await visualizerPanelEl.requestFullscreen();
+  if (!document.fullscreenEnabled) return;
+  if (document.fullscreenElement === visualizerPanelEl) await document.exitFullscreen();
+  else await visualizerPanelEl.requestFullscreen();
 }
 
-function handleFullscreenChange() {
-  const isFullscreen = document.fullscreenElement === visualizerPanelEl;
-  vizFullscreenButton.textContent = isFullscreen ? "Exit fullscreen" : "Fullscreen";
-  viewer.resize();
-}
+function handleFullscreenChange() { viewer.resize(); }
 
 function handleScenarioEditorInput() {
   window.clearTimeout(editorSyncTimer);
   editorSyncTimer = window.setTimeout(() => {
     const scenario = tryParseScenario();
-    if (!scenario?.cell) {
-      vizLabelEl.textContent = "Awaiting valid scenario JSON";
-      return;
+    if (scenario?.cell) {
+      syncInputsToCell(scenario.cell);
+      updateVisualizationFromScenario(scenario, "Real-time Editor Update");
     }
-    syncInputsToCell(scenario.cell);
-    updateVisualizationFromScenario(scenario, "Scenario editor");
-  }, 220);
+  }, 500);
 }
 
-function tryParseScenario() {
-  try {
-    return JSON.parse(scenarioInput.value);
-  } catch {
-    return null;
-  }
-}
+function tryParseScenario() { try { return JSON.parse(scenarioInput.value); } catch { return null; } }
 
 function syncInputsToCell(cell) {
-  if (typeof cell.x === "number") {
-    cellXInput.value = String(cell.x);
-  }
-  if (typeof cell.y === "number") {
-    cellYInput.value = String(cell.y);
-  }
-  if (typeof cell.z === "number") {
-    cellZInput.value = String(cell.z);
-  }
+  if (typeof cell.x === "number") cellXInput.value = String(cell.x);
+  if (typeof cell.y === "number") cellYInput.value = String(cell.y);
+  if (typeof cell.z === "number") cellZInput.value = String(cell.z);
 }
 
 function syncVisualizationWithPayload(payload, label) {
-  if (payload.metrics?.length && payload.final_state?.cell) {
+  const hasMetrics = !!(payload.metrics?.length && payload.final_state?.cell);
+  
+  // If we don't have new metrics, we MUST clear the existing trail
+  if (!hasMetrics && viewer) {
+    viewer.trajectory = [];
+    viewer.playbackActive = false;
+  }
+
+  if (hasMetrics) {
     playRunTrajectory(payload, label);
     return;
   }
-  if (payload.final_state?.cell) {
-    updateVisualizationFromCell(payload.final_state.cell, label);
-    return;
-  }
+  
   if (payload.state?.cell) {
     updateVisualizationFromCell(payload.state.cell, label);
     return;
   }
-  if (payload.scenario?.cell) {
-    updateVisualizationFromScenario(payload.scenario, label);
+  const scenario = payload.scenario || payload.resolved_scenario;
+  if (scenario?.cell) {
+    updateVisualizationFromScenario(scenario, label);
+  } else {
+    // Fallback: update from editor if payload is a generic success (like validation)
+    const current = tryParseScenario();
+    if (current?.cell) updateVisualizationFromScenario(current, label);
   }
 }
 
 function updateVisualizationFromScenario(scenario, label) {
-  if (!scenario?.cell) {
-    return;
-  }
-  updateVisualizationFromCell(
-    {
-      name: scenario.cell.name,
-      x: scenario.cell.x ?? 0,
-      y: scenario.cell.y ?? 0,
-      z: scenario.cell.z ?? 0,
-      biomass: scenario.cell.biomass ?? 0,
-      membrane_integrity: scenario.cell.membrane_integrity ?? 1,
-      alive: true,
-      energy: { atp: scenario.cell.initial_atp ?? 0 },
-    },
-    label,
-  );
+  if (!scenario?.cell) return;
+  updateVisualizationFromCell({
+    name: scenario.cell.name,
+    x: scenario.cell.x ?? 0,
+    y: scenario.cell.y ?? 0,
+    z: scenario.cell.z ?? 0,
+    biomass: scenario.cell.biomass ?? 1,
+    membrane_integrity: scenario.cell.membrane_integrity ?? 1,
+    alive: true,
+    energy: { atp: scenario.cell.initial_atp ?? 0 },
+  }, label);
 }
 
 function updateVisualizationFromCell(cell, label) {
   const spatialCell = {
-    name: cell.name ?? "Unnamed cell",
+    name: cell.name ?? "Unknown",
     x: Number(cell.x ?? 0),
     y: Number(cell.y ?? 0),
     z: Number(cell.z ?? 0),
@@ -352,72 +382,41 @@ function updateVisualizationFromCell(cell, label) {
   };
   viewer.setCell(spatialCell);
   vizNameEl.textContent = spatialCell.name;
-  vizCoordsEl.textContent = `x ${formatValue(spatialCell.x)} | y ${formatValue(spatialCell.y)} | z ${formatValue(spatialCell.z)}`;
-  vizLabelEl.textContent = `${label} · ATP ${formatValue(spatialCell.atp)} · Biomass ${formatValue(spatialCell.biomass)}`;
+  vizCoordsEl.textContent = formatPosition(spatialCell);
+  vizLabelEl.textContent = label;
 }
 
 function playRunTrajectory(payload, label) {
-  const trajectory = payload.metrics.map((metric) => ({
+  const trajectory = payload.metrics.map(m => ({
     name: payload.final_state.cell.name,
-    x: Number(metric.x ?? 0),
-    y: Number(metric.y ?? 0),
-    z: Number(metric.z ?? 0),
-    biomass: Number(metric.biomass ?? payload.final_state.cell.biomass ?? 1),
-    membrane_integrity: Number(metric.membrane_integrity ?? payload.final_state.cell.membrane_integrity ?? 1),
-    alive: payload.final_state.cell.alive ?? true,
-    atp: Number(metric.atp ?? 0),
+    x: Number(m.x ?? 0),
+    y: Number(m.y ?? 0),
+    z: Number(m.z ?? 0),
+    biomass: Number(m.biomass ?? 1),
+    membrane_integrity: Number(m.membrane_integrity ?? 1),
+    alive: true,
+    atp: Number(m.atp ?? 0),
   }));
-  if (!trajectory.length) {
-    updateVisualizationFromCell(payload.final_state.cell, label);
-    return;
+  if (trajectory.length) {
+    viewer.playTrajectory(trajectory);
+    vizLabelEl.textContent = `${label} (Animated Run)`;
   }
-
-  viewer.playTrajectory(trajectory);
-  const last = trajectory[trajectory.length - 1];
-  vizNameEl.textContent = last.name;
-  vizCoordsEl.textContent = `x ${formatValue(last.x)} | y ${formatValue(last.y)} | z ${formatValue(last.z)}`;
-  vizLabelEl.textContent = `${label} · animated ${trajectory.length} recorded steps`;
 }
 
-function escapeHtml(value) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+function escapeHtml(v) {
+  return v.toString().replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
+function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
+
+function rotateY(p, a) {
+  const cos = Math.cos(a), sin = Math.sin(a);
+  return { x: p.x * cos - p.z * sin, y: p.y, z: p.x * sin + p.z * cos };
 }
 
-function rotateY(point, angle) {
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  return {
-    x: point.x * cos - point.z * sin,
-    y: point.y,
-    z: point.x * sin + point.z * cos,
-  };
-}
-
-function rotateX(point, angle) {
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  return {
-    x: point.x,
-    y: point.y * cos - point.z * sin,
-    z: point.y * sin + point.z * cos,
-  };
-}
-
-function mixColor(channelA, channelB, ratio) {
-  return Math.round(channelA + (channelB - channelA) * ratio);
-}
-
-function rgb(values) {
-  return `rgb(${values[0]}, ${values[1]}, ${values[2]})`;
+function rotateX(p, a) {
+  const cos = Math.cos(a), sin = Math.sin(a);
+  return { x: p.x, y: p.y * cos - p.z * sin, z: p.y * sin + p.z * cos };
 }
 
 class SpaceViewer {
@@ -425,25 +424,17 @@ class SpaceViewer {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-    this.rotationX = -0.55;
-    this.rotationY = 0.72;
+    this.rotationX = -0.4;
+    this.rotationY = 0.8;
     this.zoom = 1;
     this.dragging = false;
+    this.isDraggingCell = false;
     this.lastPoint = null;
-    this.cell = {
-      name: "No cell loaded",
-      x: 0,
-      y: 0,
-      z: 0,
-      biomass: 1,
-      membrane_integrity: 1,
-      alive: true,
-      atp: 0,
-    };
+    this.cell = { name: "None", x: 0, y: 0, z: 0, biomass: 1, membrane_integrity: 1, alive: true, atp: 0 };
     this.trajectory = [];
     this.playbackActive = false;
     this.playbackStart = 0;
-    this.segmentDurationMs = 140;
+    this.segmentDurationMs = 100;
     this.renderCell = { ...this.cell };
 
     this.bindEvents();
@@ -454,42 +445,117 @@ class SpaceViewer {
 
   bindEvents() {
     window.addEventListener("resize", () => this.resize());
-    this.canvas.addEventListener("pointerdown", (event) => {
-      this.dragging = true;
-      this.lastPoint = { x: event.clientX, y: event.clientY };
-      this.canvas.setPointerCapture(event.pointerId);
-    });
-    this.canvas.addEventListener("pointermove", (event) => {
-      if (!this.dragging || !this.lastPoint) {
-        return;
+    
+    this.canvas.addEventListener("pointerdown", (e) => {
+      const rect = this.canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      const projected = this.project(this.renderCell);
+      const radius = Math.max(12, 20 * this.zoom * projected.scale);
+      const dist = Math.sqrt((x - projected.x)**2 + (y - projected.y)**2);
+
+      // Tight locking: prioritize cell interaction if anywhere near the cell
+      if (dist < radius * 3.5) {
+        this.isDraggingCell = true;
+        this.dragging = false;
+      } else {
+        this.dragging = true;
+        this.isDraggingCell = false;
       }
-      const deltaX = event.clientX - this.lastPoint.x;
-      const deltaY = event.clientY - this.lastPoint.y;
-      this.rotationY += deltaX * 0.008;
-      this.rotationX = clamp(this.rotationX + deltaY * 0.008, -1.35, 1.35);
-      this.lastPoint = { x: event.clientX, y: event.clientY };
+      
+      this.lastPoint = { x: e.clientX, y: e.clientY };
+      this.canvas.setPointerCapture(e.pointerId);
     });
-    this.canvas.addEventListener("pointerup", (event) => {
+    
+    this.canvas.addEventListener("pointermove", (e) => {
+      if (!this.lastPoint) return;
+      const dx = e.clientX - this.lastPoint.x;
+      const dy = e.clientY - this.lastPoint.y;
+
+      if (this.isDraggingCell) {
+        this.handleCellDrag(dx, dy);
+      } else if (this.dragging) {
+        this.rotationY += dx * 0.01;
+        this.rotationX = clamp(this.rotationX + dy * 0.01, -1.5, 1.5);
+      }
+      
+      this.lastPoint = { x: e.clientX, y: e.clientY };
+    });
+    
+    this.canvas.addEventListener("pointerup", (e) => {
+      if (this.isDraggingCell) {
+        this.finalizeCellReposition();
+      }
       this.dragging = false;
-      this.lastPoint = null;
-      this.canvas.releasePointerCapture(event.pointerId);
+      this.isDraggingCell = false;
+      this.canvas.releasePointerCapture(e.pointerId);
     });
-    this.canvas.addEventListener("pointerleave", () => {
-      this.dragging = false;
-      this.lastPoint = null;
+
+    this.canvas.addEventListener("dblclick", (e) => {
+      const rect = this.canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const projected = this.project(this.renderCell);
+      const radius = Math.max(12, 20 * this.zoom * projected.scale);
+      const dist = Math.sqrt((x - projected.x)**2 + (y - projected.y)**2);
+      
+      if (dist < radius * 2.5) {
+        this.repositionCellRandomly();
+      }
     });
-    this.canvas.addEventListener(
-      "wheel",
-      (event) => {
-        event.preventDefault();
-        this.zoom = clamp(this.zoom * (event.deltaY > 0 ? 0.92 : 1.08), 0.55, 2.4);
-      },
-      { passive: false },
-    );
+
+    this.canvas.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      this.zoom = clamp(this.zoom * (e.deltaY > 0 ? 0.9 : 1.1), 0.5, 5);
+    }, { passive: false });
+  }
+
+  handleCellDrag(dx, dy) {
+    // Approximate movement in 3D space based on 2D screen delta
+    const sensitivity = 0.02 / (this.zoom || 1);
+    const cos = Math.cos(this.rotationY);
+    const sin = Math.sin(this.rotationY);
+    
+    this.renderCell.x += dx * sensitivity * cos;
+    this.renderCell.z -= dx * sensitivity * sin;
+    this.renderCell.y -= dy * sensitivity;
+    
+    this.syncUIToRenderCell();
+  }
+
+  finalizeCellReposition() {
+    let scenario;
+    try {
+      scenario = JSON.parse(scenarioInput.value);
+    } catch { return; }
+
+    executeCreateCell({
+      scenario,
+      cell: {
+        x: Number(this.renderCell.x.toFixed(2)),
+        y: Number(this.renderCell.y.toFixed(2)),
+        z: Number(this.renderCell.z.toFixed(2)),
+      }
+    });
+  }
+
+  repositionCellRandomly() {
+    const newX = Number((Math.random() * 10 - 5).toFixed(2));
+    const newY = Number((Math.random() * 10 - 5).toFixed(2));
+    const newZ = Number((Math.random() * 10 - 5).toFixed(2));
+    
+    let scenario;
+    try { scenario = JSON.parse(scenarioInput.value); } catch { return; }
+    
+    executeCreateCell({
+      scenario,
+      cell: { x: newX, y: newY, z: newZ }
+    });
   }
 
   resize() {
-    const bounds = this.canvas.getBoundingClientRect();
+    const bounds = this.canvas.parentElement.getBoundingClientRect();
     this.width = Math.max(1, Math.floor(bounds.width));
     this.height = Math.max(1, Math.floor(bounds.height));
     this.canvas.width = Math.floor(this.width * this.pixelRatio);
@@ -505,7 +571,7 @@ class SpaceViewer {
   }
 
   playTrajectory(trajectory) {
-    this.trajectory = trajectory.map((point) => ({ ...point }));
+    this.trajectory = trajectory.map(p => ({ ...p }));
     this.cell = { ...this.trajectory[this.trajectory.length - 1] };
     this.renderCell = { ...this.trajectory[0] };
     this.playbackActive = this.trajectory.length > 1;
@@ -519,244 +585,143 @@ class SpaceViewer {
 
   draw() {
     this.advancePlayback();
-
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.width, this.height);
-
-    this.drawBackdrop();
-    this.drawLattice();
-    this.drawAxisMarkers();
+    this.drawGrid();
     this.drawTrail();
     this.drawCell();
   }
 
   advancePlayback() {
-    if (!this.playbackActive || this.trajectory.length < 2) {
-      return;
-    }
+    if (!this.playbackActive) return;
     const elapsed = performance.now() - this.playbackStart;
     const totalDuration = (this.trajectory.length - 1) * this.segmentDurationMs;
+    
     if (elapsed >= totalDuration) {
       this.renderCell = { ...this.trajectory[this.trajectory.length - 1] };
       this.playbackActive = false;
+      this.syncUIToRenderCell();
       return;
     }
 
     const rawIndex = elapsed / this.segmentDurationMs;
     const index = Math.floor(rawIndex);
     const t = rawIndex - index;
-    const current = this.trajectory[index];
+    const curr = this.trajectory[index];
     const next = this.trajectory[index + 1];
+    
     this.renderCell = {
       ...next,
-      x: current.x + (next.x - current.x) * t,
-      y: current.y + (next.y - current.y) * t,
-      z: current.z + (next.z - current.z) * t,
-      biomass: current.biomass + (next.biomass - current.biomass) * t,
-      membrane_integrity: current.membrane_integrity + (next.membrane_integrity - current.membrane_integrity) * t,
-      atp: current.atp + (next.atp - current.atp) * t,
-    };
-  }
-
-  drawBackdrop() {
-    const ctx = this.ctx;
-    const gradient = ctx.createRadialGradient(this.width * 0.5, this.height * 0.1, 20, this.width * 0.5, this.height, this.width);
-    gradient.addColorStop(0, "rgba(255,255,255,0.14)");
-    gradient.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, this.width, this.height);
-  }
-
-  drawLattice() {
-    const ctx = this.ctx;
-    const size = this.referenceSize();
-    const gridHalf = Math.max(5, Math.ceil(size / 2));
-    const slices = [-gridHalf, -Math.ceil(gridHalf / 2), 0, Math.ceil(gridHalf / 2), gridHalf];
-
-    slices.forEach((slice, sliceIndex) => {
-      const alpha = 0.06 + (sliceIndex / Math.max(slices.length - 1, 1)) * 0.08;
-      for (let i = -gridHalf; i <= gridHalf; i += 1) {
-        this.drawLine(
-          { x: -gridHalf, y: slice, z: i },
-          { x: gridHalf, y: slice, z: i },
-          `rgba(210, 245, 236, ${alpha})`,
-          1,
-        );
-        this.drawLine(
-          { x: i, y: slice, z: -gridHalf },
-          { x: i, y: slice, z: gridHalf },
-          `rgba(210, 245, 236, ${alpha})`,
-          1,
-        );
-      }
-    });
-
-    for (let i = -gridHalf; i <= gridHalf; i += 1) {
-      this.drawLine(
-        { x: -gridHalf, y: i, z: -gridHalf },
-        { x: -gridHalf, y: i, z: gridHalf },
-        "rgba(121, 205, 185, 0.08)",
-        1,
-      );
-      this.drawLine(
-        { x: gridHalf, y: i, z: -gridHalf },
-        { x: gridHalf, y: i, z: gridHalf },
-        "rgba(121, 205, 185, 0.08)",
-        1,
-      );
-    }
-
-    this.drawBoundingCube(gridHalf);
-  }
-
-  drawBoundingCube(gridHalf) {
-    const corners = {
-      lbf: { x: -gridHalf, y: -gridHalf, z: -gridHalf },
-      lbb: { x: -gridHalf, y: -gridHalf, z: gridHalf },
-      ltf: { x: -gridHalf, y: gridHalf, z: -gridHalf },
-      ltb: { x: -gridHalf, y: gridHalf, z: gridHalf },
-      rbf: { x: gridHalf, y: -gridHalf, z: -gridHalf },
-      rbb: { x: gridHalf, y: -gridHalf, z: gridHalf },
-      rtf: { x: gridHalf, y: gridHalf, z: -gridHalf },
-      rtb: { x: gridHalf, y: gridHalf, z: gridHalf },
+      x: curr.x + (next.x - curr.x) * t,
+      y: curr.y + (next.y - curr.y) * t,
+      z: curr.z + (next.z - curr.z) * t,
+      atp: curr.atp + (next.atp - curr.atp) * t,
     };
 
-    [
-      ["lbf", "lbb"],
-      ["lbf", "ltf"],
-      ["lbf", "rbf"],
-      ["rbb", "lbb"],
-      ["rbb", "rtb"],
-      ["rbb", "rbf"],
-      ["ltf", "ltb"],
-      ["ltf", "rtf"],
-      ["rtf", "rtb"],
-      ["rtf", "rbf"],
-      ["ltb", "rtb"],
-      ["ltb", "lbb"],
-    ].forEach(([from, to]) => {
-      this.drawLine(corners[from], corners[to], "rgba(255,255,255,0.16)", 1.4);
-    });
+    this.syncUIToRenderCell();
   }
 
-  drawAxisMarkers() {
-    const size = this.referenceSize();
-    const anchors = [
-      { point: { x: size, y: -size, z: -size }, label: "X", color: "#d06347" },
-      { point: { x: -size, y: size, z: -size }, label: "Y", color: "#37a686" },
-      { point: { x: -size, y: -size, z: size }, label: "Z", color: "#4d82ff" },
-    ];
-
-    anchors.forEach(({ point, label, color }) => {
-      const projected = this.project(point);
-      const ctx = this.ctx;
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(projected.x, projected.y, 4, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = "rgba(255,255,255,0.8)";
-      ctx.font = '12px "Segoe UI", sans-serif';
-      ctx.fillText(label, projected.x + 8, projected.y - 8);
-    });
+  syncUIToRenderCell() {
+    // Update HUD
+    vizCoordsEl.textContent = formatPosition(this.renderCell);
+    
+    // Update Sidebar Inputs (X, Y, Z)
+    const xIn = document.getElementById("metric-coord-x");
+    const yIn = document.getElementById("metric-coord-y");
+    const zIn = document.getElementById("metric-coord-z");
+    
+    if (xIn) xIn.value = this.renderCell.x.toFixed(2);
+    if (yIn) yIn.value = this.renderCell.y.toFixed(2);
+    if (zIn) zIn.value = this.renderCell.z.toFixed(2);
   }
 
   drawTrail() {
-    if (!this.trajectory.length) {
-      return;
-    }
+    if (!this.trajectory.length) return;
     const ctx = this.ctx;
-    ctx.strokeStyle = "rgba(143, 242, 215, 0.62)";
-    ctx.lineWidth = 2;
     ctx.beginPath();
-    this.trajectory.forEach((point, index) => {
-      const projected = this.project(point);
-      if (index === 0) {
-        ctx.moveTo(projected.x, projected.y);
-      } else {
-        ctx.lineTo(projected.x, projected.y);
-      }
+    ctx.strokeStyle = "rgba(59, 130, 246, 0.6)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);
+
+    this.trajectory.forEach((point, i) => {
+      const p = this.project(point);
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
     });
     ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  drawGrid() {
+    const ctx = this.ctx;
+    const size = 10, step = 1;
+    for (let i = -size; i <= size; i += step) {
+      const isCenter = i === 0;
+      const alpha = isCenter ? 0.35 : 0.12;
+      const color = `rgba(148, 163, 184, ${alpha})`;
+      this.drawLine({ x: -size, y: 0, z: i }, { x: size, y: 0, z: i }, color);
+      this.drawLine({ x: i, y: 0, z: -size }, { x: i, y: 0, z: size }, color);
+    }
+    this.drawLine({ x: 0, y: 0, z: 0 }, { x: size, y: 0, z: 0 }, "rgba(239, 68, 68, 0.8)"); // X
+    this.drawLine({ x: 0, y: 0, z: 0 }, { x: 0, y: size, z: 0 }, "rgba(34, 197, 94, 0.8)"); // Y
+    this.drawLine({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 5 }, "rgba(59, 130, 246, 0.8)"); // Z
   }
 
   drawCell() {
     const ctx = this.ctx;
     const cell = this.renderCell;
     const projected = this.project(cell);
-    const radius = clamp(10 + cell.biomass * 10 * this.zoom + projected.scale * 7, 10, 42);
-    const integrity = clamp(cell.membrane_integrity, 0, 1);
-    const aliveMix = cell.alive ? integrity : 0;
-    const fillColor = [
-      mixColor(216, 80, aliveMix),
-      mixColor(113, 81, aliveMix),
-      mixColor(86, 130, aliveMix),
-    ];
-    const glow = ctx.createRadialGradient(projected.x - radius * 0.25, projected.y - radius * 0.35, radius * 0.2, projected.x, projected.y, radius * 1.4);
-    glow.addColorStop(0, "rgba(255,255,255,0.92)");
-    glow.addColorStop(0.3, rgb(fillColor));
-    glow.addColorStop(1, "rgba(9, 43, 59, 0.22)");
-
-    ctx.fillStyle = "rgba(130, 222, 196, 0.16)";
-    ctx.beginPath();
-    ctx.arc(projected.x, projected.y, radius * 1.8, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = glow;
+    const radius = Math.max(8, 15 * this.zoom * projected.scale);
+    
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = cell.alive ? "rgba(37, 99, 235, 0.4)" : "rgba(100, 116, 139, 0.4)";
+    
+    const grad = ctx.createRadialGradient(projected.x - radius/3, projected.y - radius/3, radius/4, projected.x, projected.y, radius);
+    if (cell.alive) {
+      grad.addColorStop(0, "#60a5fa");
+      grad.addColorStop(1, "#1d4ed8");
+    } else {
+      grad.addColorStop(0, "#94a3b8");
+      grad.addColorStop(1, "#475569");
+    }
+    
+    ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.arc(projected.x, projected.y, radius, 0, Math.PI * 2);
     ctx.fill();
-
-    ctx.strokeStyle = `rgba(255,255,255,${0.3 + integrity * 0.5})`;
-    ctx.lineWidth = 2;
+    
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255,255,255,0.2)";
     ctx.beginPath();
-    ctx.arc(projected.x, projected.y, radius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.fillStyle = "rgba(255,255,255,0.9)";
-    ctx.beginPath();
-    ctx.arc(projected.x - radius * 0.25, projected.y - radius * 0.28, Math.max(3, radius * 0.18), 0, Math.PI * 2);
+    ctx.arc(projected.x - radius/3, projected.y - radius/3, radius/4, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = "rgba(255,255,255,0.72)";
-    ctx.font = '13px "Segoe UI", sans-serif';
-    ctx.fillText(cell.name, projected.x + radius + 10, projected.y - 6);
-    ctx.fillText(`ATP ${formatValue(cell.atp)}`, projected.x + radius + 10, projected.y + 12);
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 11px var(--font-sans)";
+    ctx.textAlign = "center";
+    ctx.fillText(cell.name, projected.x, projected.y + radius + 15);
   }
 
-  referenceSize() {
-    return Math.max(
-      8,
-      Math.abs(this.cell.x) * 2.2,
-      Math.abs(this.cell.y) * 2.2,
-      Math.abs(this.cell.z) * 2.2,
-      this.cell.biomass * 4,
-      ...this.trajectory.flatMap((point) => [Math.abs(point.x) * 2.2, Math.abs(point.y) * 2.2, Math.abs(point.z) * 2.2]),
-    );
-  }
-
-  project(point) {
-    const scaleBase = Math.min(this.width, this.height) * 0.085 * this.zoom;
-    const rotatedY = rotateY(point, this.rotationY);
+  project(p) {
+    const scaleBase = Math.min(this.width, this.height) * 0.1 * this.zoom;
+    const rotatedY = rotateY(p, this.rotationY);
     const rotated = rotateX(rotatedY, this.rotationX);
-    const cameraDepth = 18;
-    const perspective = cameraDepth / (cameraDepth + rotated.z + 12);
+    const perspective = 20 / (20 + rotated.z);
     return {
       x: this.width * 0.5 + rotated.x * scaleBase * perspective,
-      y: this.height * 0.58 - rotated.y * scaleBase * perspective,
+      y: this.height * 0.5 - rotated.y * scaleBase * perspective,
       scale: perspective,
     };
   }
 
-  drawLine(from, to, strokeStyle, lineWidth) {
+  drawLine(from, to, color) {
     const ctx = this.ctx;
-    const start = this.project(from);
-    const end = this.project(to);
-    ctx.strokeStyle = strokeStyle;
-    ctx.lineWidth = lineWidth;
+    const p1 = this.project(from), p2 = this.project(to);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(start.x, start.y);
-    ctx.lineTo(end.x, end.y);
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
     ctx.stroke();
   }
 }
