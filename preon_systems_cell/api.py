@@ -6,6 +6,8 @@ from random import Random
 from preon_systems_cell.artifacts import write_run_artifacts
 from preon_systems_cell.engine import ENGINE_VERSION, initial_state_for_scenario, step_simulation as engine_step_simulation
 from preon_systems_cell.models import (
+    CellCreateParams,
+    CellCreateResponse,
     Event,
     EventType,
     RunArtifacts,
@@ -38,6 +40,20 @@ def step_simulation(state: WorldState, dt: float, rng: Random, scenario: Scenari
     if dt != scenario.simulation.dt:
         scenario = scenario.model_copy(update={"simulation": scenario.simulation.model_copy(update={"dt": dt})})
     return step_simulation_api(state, scenario, rng)
+
+
+def create_cell(scenario: Scenario, params: CellCreateParams | None = None) -> CellCreateResponse:
+    effective_scenario = scenario
+    if params is not None:
+        scenario_updates = params.model_dump(exclude_none=True)
+        if scenario_updates:
+            effective_scenario = scenario.model_copy(
+                update={"cell": scenario.cell.model_copy(update=scenario_updates)}
+            )
+    return CellCreateResponse(
+        scenario=effective_scenario,
+        state=initial_state_for_scenario(effective_scenario),
+    )
 
 
 def run_simulation(

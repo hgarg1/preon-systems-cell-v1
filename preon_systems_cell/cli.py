@@ -8,6 +8,7 @@ from preon_systems_cell.api import load_scenario, run_simulation, validate_scena
 from preon_systems_cell.artifacts import read_json
 from preon_systems_cell.models import ValidationReport
 from preon_systems_cell.scenario import validate_scenario_file
+from preon_systems_cell.web import main as run_web_server
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,6 +27,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     inspect_parser = subparsers.add_parser("inspect", help="Inspect a generated JSON artifact.")
     inspect_parser.add_argument("artifact", type=Path)
+
+    web_parser = subparsers.add_parser("web", help="Run the FastAPI web server.")
+    web_parser.add_argument("--host", default="127.0.0.1")
+    web_parser.add_argument("--port", type=int, default=8000)
     return parser
 
 
@@ -62,6 +67,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "inspect":
         print(json.dumps(read_json(args.artifact), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "web":
+        run_web_server(host=args.host, port=args.port)
         return 0
 
     parser.error(f"unsupported command: {args.command}")

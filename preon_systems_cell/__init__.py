@@ -1,4 +1,5 @@
 from preon_systems_cell.api import (
+    create_cell,
     load_scenario,
     run_simulation,
     step_simulation,
@@ -6,6 +7,7 @@ from preon_systems_cell.api import (
 )
 
 __all__ = [
+    "create_cell",
     "load_scenario",
     "run_simulation",
     "step_simulation",

@@ -29,6 +29,9 @@ def _metrics(state: WorldState) -> StepMetrics:
         toxicity=state.environment.toxicity,
         membrane_integrity=state.cell.membrane_integrity,
         biomass=state.cell.biomass,
+        x=state.cell.x,
+        y=state.cell.y,
+        z=state.cell.z,
     )
 
 
@@ -138,6 +141,37 @@ def _apply_growth(state: WorldState, scenario: Scenario, events: list[Event]) ->
         events.append(_event(state, EventType.GROWTH, "Completed a simple division event", division_count=cell.division_count))
 
 
+def _apply_movement(state: WorldState, scenario: Scenario, rng: Random, events: list[Event]) -> None:
+    cell = state.cell
+    if not cell.alive or not scenario.movement.enabled or scenario.movement.drift_strength <= 0:
+        return
+
+    mobility = (
+        scenario.movement.drift_strength
+        * scenario.simulation.dt
+        * max(cell.membrane_integrity, 0.1)
+        * (1.0 + (cell.energy.atp * scenario.movement.atp_influence))
+    )
+    dx = (rng.uniform(-1.0, 1.0)) * mobility
+    dy = (rng.uniform(-1.0, 1.0)) * mobility * scenario.movement.vertical_drift
+    dz = (rng.uniform(-1.0, 1.0)) * mobility
+
+    cell.x += dx
+    cell.y += dy
+    cell.z += dz
+    events.append(
+        _event(
+            state,
+            EventType.MOVEMENT,
+            "Cell drifted through 3D space",
+            delta_x=dx,
+            delta_y=dy,
+            delta_z=dz,
+            distance=(dx**2 + dy**2 + dz**2) ** 0.5,
+        )
+    )
+
+
 def _check_termination(state: WorldState, scenario: Scenario, events: list[Event]) -> TerminationReason | None:
     cell = state.cell
     if cell.energy.atp < 0:
@@ -176,6 +210,7 @@ def step_simulation(state: WorldState, scenario: Scenario, rng: Random) -> StepT
     _apply_metabolism(next_state, scenario, rng, events)
     _apply_maintenance_and_repair(next_state, scenario, events)
     _apply_growth(next_state, scenario, events)
+    _apply_movement(next_state, scenario, rng, events)
 
     termination_reason = _check_termination(next_state, scenario, events)
     terminated = termination_reason is not None

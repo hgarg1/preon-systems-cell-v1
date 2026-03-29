@@ -18,6 +18,11 @@ maintenance:
   repair_atp_cost: 1.6
   growth_atp_cost: 2.4
   biomass_gain_per_growth: 0.18
+movement:
+  enabled: true
+  drift_strength: 0.45
+  vertical_drift: 0.18
+  atp_influence: 0.08
 cell:
   name: Preon_Systems
   initial_atp: 14.0
@@ -28,6 +33,9 @@ cell:
   biomass: 1.0
   maintenance_threshold_atp: 1.5
   division_biomass_threshold: 2.4
+  x: 0.0
+  y: 0.0
+  z: 0.0
 simulation:
   dt: 1.0
   max_steps: 64

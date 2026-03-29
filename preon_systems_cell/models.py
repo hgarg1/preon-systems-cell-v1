@@ -20,6 +20,7 @@ class EventType(StrEnum):
     MAINTENANCE = "maintenance"
     REPAIR = "repair"
     GROWTH = "growth"
+    MOVEMENT = "movement"
     DAMAGE = "damage"
     TERMINATION = "termination"
     INVARIANT = "invariant"
@@ -55,6 +56,13 @@ class MaintenanceConfig(BaseConfigModel):
     biomass_gain_per_growth: float = Field(ge=0)
 
 
+class MovementConfig(BaseConfigModel):
+    enabled: bool = True
+    drift_strength: float = Field(ge=0, default=0.45)
+    vertical_drift: float = Field(ge=0, default=0.18)
+    atp_influence: float = Field(ge=0, default=0.08)
+
+
 class CellConfig(BaseConfigModel):
     name: str = Field(min_length=1)
     initial_atp: float = Field(gt=0)
@@ -65,6 +73,9 @@ class CellConfig(BaseConfigModel):
     biomass: float = Field(gt=0)
     maintenance_threshold_atp: float = Field(gt=0)
     division_biomass_threshold: float = Field(gt=0)
+    x: float = 0
+    y: float = 0
+    z: float = 0
 
 
 class SimulationConfig(BaseConfigModel):
@@ -80,6 +91,7 @@ class Scenario(BaseConfigModel):
     transport: TransportConfig
     metabolism: MetabolismConfig
     maintenance: MaintenanceConfig
+    movement: MovementConfig = Field(default_factory=MovementConfig)
     cell: CellConfig
     simulation: SimulationConfig = Field(default_factory=SimulationConfig)
 
@@ -111,6 +123,9 @@ class CellState(BaseConfigModel):
     waste: float = Field(ge=0)
     membrane_integrity: float = Field(ge=0, le=1)
     biomass: float = Field(ge=0)
+    x: float = 0
+    y: float = 0
+    z: float = 0
     alive: bool = True
     division_count: int = 0
 
@@ -146,6 +161,9 @@ class StepMetrics(BaseConfigModel):
     toxicity: float
     membrane_integrity: float
     biomass: float
+    x: float
+    y: float
+    z: float
 
 
 class StepTransition(BaseConfigModel):
@@ -182,6 +200,26 @@ class RunArtifacts(BaseConfigModel):
     termination_reason: TerminationReason
 
 
+class CellCreateParams(BaseConfigModel):
+    name: str | None = None
+    initial_atp: float | None = Field(default=None, gt=0)
+    initial_adp: float | None = Field(default=None, ge=0)
+    nutrient_reserve: float | None = Field(default=None, ge=0)
+    waste: float | None = Field(default=None, ge=0)
+    membrane_integrity: float | None = Field(default=None, ge=0, le=1)
+    biomass: float | None = Field(default=None, gt=0)
+    maintenance_threshold_atp: float | None = Field(default=None, gt=0)
+    division_biomass_threshold: float | None = Field(default=None, gt=0)
+    x: float | None = None
+    y: float | None = None
+    z: float | None = None
+
+
+class CellCreateResponse(BaseConfigModel):
+    scenario: Scenario
+    state: WorldState
+
+
 def build_initial_state(scenario: Scenario) -> WorldState:
     return WorldState(
         cell=CellState(
@@ -191,6 +229,9 @@ def build_initial_state(scenario: Scenario) -> WorldState:
             waste=scenario.cell.waste,
             membrane_integrity=scenario.cell.membrane_integrity,
             biomass=scenario.cell.biomass,
+            x=scenario.cell.x,
+            y=scenario.cell.y,
+            z=scenario.cell.z,
         ),
         environment=EnvironmentState(
             nutrient_concentration=scenario.environment.nutrient_concentration,
