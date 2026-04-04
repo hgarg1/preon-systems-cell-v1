@@ -1,0 +1,178 @@
+INFO:     Started server process [21708]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "C:\Users\archi\Documents\preon-systems-cell-v1\preon_systems_cell\web.py", line 116, in _load_default_scenario
+    return Scenario.model_validate(raw)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\pydantic\main.py", line 716, in model_validate
+    return cls.__pydantic_validator__.validate_python(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        obj,
+        ^^^^
+    ...<5 lines>...
+        by_name=by_name,
+        ^^^^^^^^^^^^^^^^
+    )
+    ^
+pydantic_core._pydantic_core.ValidationError: 14 validation errors for Scenario
+environment.nutrient_concentration
+  Field required [type=missing, input_value={'glucose_concentration':..., 'toxicity_rate': 0.04}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+environment.replenishment_rate
+  Field required [type=missing, input_value={'glucose_concentration':..., 'toxicity_rate': 0.04}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+environment.glucose_concentration
+  Extra inputs are not permitted [type=extra_forbidden, input_value=24.0, input_type=float]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+environment.basal_glucose_level
+  Extra inputs are not permitted [type=extra_forbidden, input_value=24.0, input_type=float]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+environment.glucose_replenishment_rate
+  Extra inputs are not permitted [type=extra_forbidden, input_value=0.9, input_type=float]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+transport.uptake_rate
+  Field required [type=missing, input_value={'passive_diffusion_rate': 2.6}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+transport.atp_cost_per_unit
+  Field required [type=missing, input_value={'passive_diffusion_rate': 2.6}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+transport.passive_diffusion_rate
+  Extra inputs are not permitted [type=extra_forbidden, input_value=2.6, input_type=float]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+metabolism.atp_yield_per_nutrient
+  Field required [type=missing, input_value={'glucose_processing_cap_per_step': 2.1}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+metabolism.waste_per_nutrient
+  Field required [type=missing, input_value={'glucose_processing_cap_per_step': 2.1}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+metabolism.glucose_processing_cap_per_step
+  Extra inputs are not permitted [type=extra_forbidden, input_value=2.1, input_type=float]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+cell.nutrient_reserve
+  Field required [type=missing, input_value={'name': 'Preon_Systems',...0.0, 'y': 0.0, 'z': 0.0}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+cell.cytosol
+  Extra inputs are not permitted [type=extra_forbidden, input_value={'glucose': 1.2, 'pyruvate': 0.0, 'nadh': 0.0}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+cell.glucose_transporter_density
+  Extra inputs are not permitted [type=extra_forbidden, input_value=1.1, input_type=float]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\uvicorn\protocols\http\h11_impl.py", line 410, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        self.scope, self.receive, self.send
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\fastapi\applications.py", line 1160, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\starlette\applications.py", line 107, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\fastapi\routing.py", line 130, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\fastapi\routing.py", line 116, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\fastapi\routing.py", line 670, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\fastapi\routing.py", line 326, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\starlette\concurrency.py", line 32, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\anyio\to_thread.py", line 61, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\anyio\_backends\_asyncio.py", line 2525, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\archi\AppData\Roaming\Python\Python314\site-packages\anyio\_backends\_asyncio.py", line 986, in run
+    result = context.run(func, *args)
+  File "C:\Users\archi\Documents\preon-systems-cell-v1\preon_systems_cell\web.py", line 55, in get_default_scenario
+    scenario = _load_default_scenario()
+  File "C:\Users\archi\Documents\preon-systems-cell-v1\preon_systems_cell\web.py", line 118, in _load_default_scenario
+    raise RuntimeError(f"default scenario is invalid: {exc}") from exc
+RuntimeError: default scenario is invalid: 14 validation errors for Scenario
+environment.nutrient_concentration
+  Field required [type=missing, input_value={'glucose_concentration':..., 'toxicity_rate': 0.04}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+environment.replenishment_rate
+  Field required [type=missing, input_value={'glucose_concentration':..., 'toxicity_rate': 0.04}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+environment.glucose_concentration
+  Extra inputs are not permitted [type=extra_forbidden, input_value=24.0, input_type=float]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+environment.basal_glucose_level
+  Extra inputs are not permitted [type=extra_forbidden, input_value=24.0, input_type=float]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+environment.glucose_replenishment_rate
+  Extra inputs are not permitted [type=extra_forbidden, input_value=0.9, input_type=float]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+transport.uptake_rate
+  Field required [type=missing, input_value={'passive_diffusion_rate': 2.6}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+transport.atp_cost_per_unit
+  Field required [type=missing, input_value={'passive_diffusion_rate': 2.6}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+transport.passive_diffusion_rate
+  Extra inputs are not permitted [type=extra_forbidden, input_value=2.6, input_type=float]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+metabolism.atp_yield_per_nutrient
+  Field required [type=missing, input_value={'glucose_processing_cap_per_step': 2.1}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+metabolism.waste_per_nutrient
+  Field required [type=missing, input_value={'glucose_processing_cap_per_step': 2.1}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+metabolism.glucose_processing_cap_per_step
+  Extra inputs are not permitted [type=extra_forbidden, input_value=2.1, input_type=float]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+cell.nutrient_reserve
+  Field required [type=missing, input_value={'name': 'Preon_Systems',...0.0, 'y': 0.0, 'z': 0.0}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+cell.cytosol
+  Extra inputs are not permitted [type=extra_forbidden, input_value={'glucose': 1.2, 'pyruvate': 0.0, 'nadh': 0.0}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+cell.glucose_transporter_density
+  Extra inputs are not permitted [type=extra_forbidden, input_value=1.1, input_type=float]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden

@@ -47,8 +47,14 @@ def create_cell(scenario: Scenario, params: CellCreateParams | None = None) -> C
     if params is not None:
         scenario_updates = params.model_dump(exclude_none=True)
         if scenario_updates:
+            cytosol_updates = scenario_updates.pop("cytosol", None)
+            cell_config = scenario.cell
+            if cytosol_updates:
+                cell_config = cell_config.model_copy(
+                    update={"cytosol": cell_config.cytosol.model_copy(update=cytosol_updates)}
+                )
             effective_scenario = scenario.model_copy(
-                update={"cell": scenario.cell.model_copy(update=scenario_updates)}
+                update={"cell": cell_config.model_copy(update=scenario_updates)}
             )
     return CellCreateResponse(
         scenario=effective_scenario,

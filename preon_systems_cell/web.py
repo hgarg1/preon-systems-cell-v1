@@ -42,7 +42,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Preon Systems Cell API",
         version=ENGINE_VERSION,
-        description="HTTP API and small web UI for the deterministic ATP-centric cell simulator.",
+        description="HTTP API and small web UI for the deterministic glucose-centric cell simulator.",
     )
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

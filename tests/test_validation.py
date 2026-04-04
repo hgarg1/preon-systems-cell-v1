@@ -5,7 +5,7 @@ from pydantic import ValidationError
 from preon_systems_cell.models import Scenario, TerminationReason
 
 
-def test_invalid_scenario_rejected():
+def test_invalid_v1_scenario_rejected():
     payload = yaml.safe_load(
         """
 version: 1
@@ -25,7 +25,7 @@ maintenance:
   basal_atp_cost: 1
   membrane_decay: 0.1
   repair_rate: 0.5
-  repair_atp_cost: 0
+  repair_atp_cost: 1
   growth_atp_cost: 0
   biomass_gain_per_growth: 0
 cell:
@@ -35,6 +35,51 @@ cell:
   nutrient_reserve: 0
   waste: 0
   membrane_integrity: 1
+  biomass: 1
+  maintenance_threshold_atp: 1
+  division_biomass_threshold: 2
+simulation:
+  dt: 1
+  max_steps: 2
+  record_every: 1
+"""
+    )
+    with pytest.raises(ValidationError):
+        Scenario.model_validate(payload)
+
+
+def test_v2_scenario_requires_positive_diffusion_and_metabolism_caps():
+    payload = yaml.safe_load(
+        """
+version: 2
+scenario_name: bad_v2
+environment:
+  glucose_concentration: 10
+  basal_glucose_level: 10
+  glucose_replenishment_rate: 0
+  toxicity_rate: 0.01
+transport:
+  passive_diffusion_rate: 0
+metabolism:
+  glucose_processing_cap_per_step: 0
+maintenance:
+  basal_atp_cost: 1
+  membrane_decay: 0
+  repair_rate: 0
+  repair_atp_cost: 0
+  growth_atp_cost: 0
+  biomass_gain_per_growth: 0
+cell:
+  name: bad
+  initial_atp: 1
+  initial_adp: 0
+  cytosol:
+    glucose: 0
+    pyruvate: 0
+    nadh: 0
+  waste: 0
+  membrane_integrity: 1
+  glucose_transporter_density: 1
   biomass: 1
   maintenance_threshold_atp: 1
   division_biomass_threshold: 2

@@ -13,7 +13,7 @@
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="logo"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
           <div class="brand-text">
             <h1>Preon Systems</h1>
-            <p>Cell v1 Simulation Engine</p>
+            <p>Cell v2 Simulation Engine</p>
           </div>
         </div>
         
@@ -135,7 +135,7 @@
             <div class="panel">
               <div class="panel-header">
                 <h2>Scenario JSON</h2>
-                <span class="subtle">Schema v1</span>
+                <span class="subtle">Schema v2</span>
               </div>
               <div class="editor-container">
                 <textarea id="scenario" spellcheck="false" placeholder="Paste or edit scenario JSON..."></textarea>
@@ -176,13 +176,13 @@
               <div id="schema-tab" class="tab-content">
                 <div class="schema-view">
                   <div class="schema-section">
-                    <h3>Scenario (v1)</h3>
+                    <h3>Scenario (v2)</h3>
                     <ul class="schema-list">
-                      <li><b>environment:</b> nutrient_concentration, replenishment_rate, toxicity_rate</li>
-                      <li><b>transport:</b> uptake_rate, atp_cost_per_unit</li>
-                      <li><b>metabolism:</b> atp_yield_per_nutrient, waste_per_nutrient</li>
+                      <li><b>environment:</b> glucose_concentration, basal_glucose_level, glucose_replenishment_rate, toxicity_rate</li>
+                      <li><b>transport:</b> passive_diffusion_rate</li>
+                      <li><b>metabolism:</b> glucose_processing_cap_per_step</li>
                       <li><b>maintenance:</b> basal_atp_cost, membrane_decay, repair_rate, growth_atp_cost</li>
-                      <li><b>cell:</b> initial_atp, nutrient_reserve, membrane_integrity, biomass, x, y, z</li>
+                      <li><b>cell:</b> initial_atp, cytosol.glucose, cytosol.pyruvate, cytosol.nadh, glucose_transporter_density, membrane_integrity, biomass, x, y, z</li>
                     </ul>
                   </div>
                   <div class="schema-section">

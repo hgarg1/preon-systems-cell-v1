@@ -16,7 +16,7 @@ class TerminationReason(StrEnum):
 
 class EventType(StrEnum):
     TRANSPORT = "transport"
-    METABOLISM = "metabolism"
+    GLYCOLYSIS = "glycolysis"
     MAINTENANCE = "maintenance"
     REPAIR = "repair"
     GROWTH = "growth"
@@ -31,24 +31,22 @@ class BaseConfigModel(BaseModel):
 
 
 class EnvironmentConfig(BaseConfigModel):
-    nutrient_concentration: float = Field(gt=0)
-    replenishment_rate: float = Field(ge=0)
+    glucose_concentration: float = Field(ge=0)
+    basal_glucose_level: float = Field(ge=0)
+    glucose_replenishment_rate: float = Field(ge=0)
     toxicity_rate: float = Field(ge=0, default=0.01)
 
 
 class TransportConfig(BaseConfigModel):
-    uptake_rate: float = Field(gt=0)
-    atp_cost_per_unit: float = Field(ge=0)
+    passive_diffusion_rate: float = Field(gt=0)
 
 
 class MetabolismConfig(BaseConfigModel):
-    atp_yield_per_nutrient: float = Field(gt=0)
-    waste_per_nutrient: float = Field(ge=0)
-    reserve_conversion_cap: float = Field(gt=0, default=5.0)
+    glucose_processing_cap_per_step: float = Field(gt=0, default=5.0)
 
 
 class MaintenanceConfig(BaseConfigModel):
-    basal_atp_cost: float = Field(gt=0)
+    basal_atp_cost: float = Field(ge=0)
     membrane_decay: float = Field(ge=0)
     repair_rate: float = Field(ge=0)
     repair_atp_cost: float = Field(ge=0)
@@ -63,13 +61,20 @@ class MovementConfig(BaseConfigModel):
     atp_influence: float = Field(ge=0, default=0.08)
 
 
+class CytosolConfig(BaseConfigModel):
+    glucose: float = Field(ge=0)
+    pyruvate: float = Field(ge=0, default=0)
+    nadh: float = Field(ge=0, default=0)
+
+
 class CellConfig(BaseConfigModel):
     name: str = Field(min_length=1)
     initial_atp: float = Field(gt=0)
     initial_adp: float = Field(ge=0)
-    nutrient_reserve: float = Field(ge=0)
+    cytosol: CytosolConfig
     waste: float = Field(ge=0)
     membrane_integrity: float = Field(ge=0, le=1)
+    glucose_transporter_density: float = Field(ge=0)
     biomass: float = Field(gt=0)
     maintenance_threshold_atp: float = Field(gt=0)
     division_biomass_threshold: float = Field(gt=0)
@@ -85,7 +90,7 @@ class SimulationConfig(BaseConfigModel):
 
 
 class Scenario(BaseConfigModel):
-    version: int = Field(default=1)
+    version: int = Field(default=2)
     scenario_name: str = Field(min_length=1)
     environment: EnvironmentConfig
     transport: TransportConfig
@@ -97,12 +102,20 @@ class Scenario(BaseConfigModel):
 
     @model_validator(mode="after")
     def validate_cross_field_rules(self) -> "Scenario":
+        if self.version != 2:
+            raise ValueError("scenario version must be 2")
         if self.maintenance.repair_rate > 0 and self.maintenance.repair_atp_cost == 0:
             raise ValueError("repair_atp_cost must be positive when repair_rate is enabled")
         if self.maintenance.biomass_gain_per_growth > 0 and self.maintenance.growth_atp_cost == 0:
             raise ValueError("growth_atp_cost must be positive when growth is enabled")
-        if self.cell.initial_atp <= self.transport.atp_cost_per_unit:
-            raise ValueError("initial_atp must exceed the per-unit transport ATP cost")
+        if self.environment.glucose_concentration < self.environment.basal_glucose_level:
+            max_reachable = self.environment.glucose_concentration + (
+                self.environment.glucose_replenishment_rate * self.simulation.dt
+            )
+            if max_reachable <= self.environment.glucose_concentration:
+                raise ValueError(
+                    "glucose_replenishment_rate must be positive when glucose_concentration starts below basal_glucose_level"
+                )
         return self
 
 
@@ -116,12 +129,19 @@ class EnergyState(BaseConfigModel):
     adp: float = Field(ge=0)
 
 
+class CytosolState(BaseConfigModel):
+    glucose: float = Field(ge=0)
+    pyruvate: float = Field(ge=0)
+    nadh: float = Field(ge=0)
+
+
 class CellState(BaseConfigModel):
     name: str
     energy: EnergyState
-    nutrient_reserve: float = Field(ge=0)
+    cytosol: CytosolState
     waste: float = Field(ge=0)
     membrane_integrity: float = Field(ge=0, le=1)
+    glucose_transporter_density: float = Field(ge=0)
     biomass: float = Field(ge=0)
     x: float = 0
     y: float = 0
@@ -131,7 +151,8 @@ class CellState(BaseConfigModel):
 
 
 class EnvironmentState(BaseConfigModel):
-    nutrient_concentration: float = Field(ge=0)
+    glucose_concentration: float = Field(ge=0)
+    basal_glucose_level: float = Field(ge=0)
     toxicity: float = Field(ge=0)
 
 
@@ -155,11 +176,14 @@ class StepMetrics(BaseConfigModel):
     time: float
     atp: float
     adp: float
-    nutrient_reserve: float
-    environment_nutrients: float
+    cytosolic_glucose: float
+    pyruvate: float
+    nadh: float
+    environment_glucose: float
     waste: float
     toxicity: float
     membrane_integrity: float
+    glucose_transporter_density: float
     biomass: float
     x: float
     y: float
@@ -200,13 +224,20 @@ class RunArtifacts(BaseConfigModel):
     termination_reason: TerminationReason
 
 
+class CytosolCreateParams(BaseConfigModel):
+    glucose: float | None = Field(default=None, ge=0)
+    pyruvate: float | None = Field(default=None, ge=0)
+    nadh: float | None = Field(default=None, ge=0)
+
+
 class CellCreateParams(BaseConfigModel):
     name: str | None = None
     initial_atp: float | None = Field(default=None, gt=0)
     initial_adp: float | None = Field(default=None, ge=0)
-    nutrient_reserve: float | None = Field(default=None, ge=0)
+    cytosol: CytosolCreateParams | None = None
     waste: float | None = Field(default=None, ge=0)
     membrane_integrity: float | None = Field(default=None, ge=0, le=1)
+    glucose_transporter_density: float | None = Field(default=None, ge=0)
     biomass: float | None = Field(default=None, gt=0)
     maintenance_threshold_atp: float | None = Field(default=None, gt=0)
     division_biomass_threshold: float | None = Field(default=None, gt=0)
@@ -225,16 +256,22 @@ def build_initial_state(scenario: Scenario) -> WorldState:
         cell=CellState(
             name=scenario.cell.name,
             energy=EnergyState(atp=scenario.cell.initial_atp, adp=scenario.cell.initial_adp),
-            nutrient_reserve=scenario.cell.nutrient_reserve,
+            cytosol=CytosolState(
+                glucose=scenario.cell.cytosol.glucose,
+                pyruvate=scenario.cell.cytosol.pyruvate,
+                nadh=scenario.cell.cytosol.nadh,
+            ),
             waste=scenario.cell.waste,
             membrane_integrity=scenario.cell.membrane_integrity,
+            glucose_transporter_density=scenario.cell.glucose_transporter_density,
             biomass=scenario.cell.biomass,
             x=scenario.cell.x,
             y=scenario.cell.y,
             z=scenario.cell.z,
         ),
         environment=EnvironmentState(
-            nutrient_concentration=scenario.environment.nutrient_concentration,
+            glucose_concentration=scenario.environment.glucose_concentration,
+            basal_glucose_level=scenario.environment.basal_glucose_level,
             toxicity=0,
         ),
     )

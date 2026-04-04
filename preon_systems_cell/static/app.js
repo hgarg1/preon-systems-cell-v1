@@ -208,14 +208,22 @@ function renderSummary(payload) {
   if (payload.loaded && scenario?.cell) {
     metrics.push(["Position", formatPosition(scenario.cell)]);
     metrics.push(["Initial ATP", formatValue(scenario.cell.initial_atp)]);
+    metrics.push(["Cytosol Glucose", formatValue(scenario.cell.cytosol?.glucose ?? 0)]);
     metrics.push(["Biomass", formatValue(scenario.cell.biomass)]);
   } else if (payload.state?.cell) {
     metrics.push(["Position", formatPosition(payload.state.cell)]);
     metrics.push(["ATP Level", formatValue(payload.state.cell.energy.atp)]);
+    metrics.push(["Cytosol Glucose", formatValue(payload.state.cell.cytosol?.glucose ?? 0)]);
+    metrics.push(["Pyruvate", formatValue(payload.state.cell.cytosol?.pyruvate ?? 0)]);
+    metrics.push(["NADH", formatValue(payload.state.cell.cytosol?.nadh ?? 0)]);
     metrics.push(["Biomass", formatValue(payload.state.cell.biomass)]);
   } else if (payload.final_state) {
     metrics.push(["Position", formatPosition(payload.final_state.cell)]);
     metrics.push(["Final ATP", formatValue(payload.final_state.cell.energy.atp)]);
+    metrics.push(["Cytosol Glucose", formatValue(payload.final_state.cell.cytosol?.glucose ?? 0)]);
+    metrics.push(["Pyruvate", formatValue(payload.final_state.cell.cytosol?.pyruvate ?? 0)]);
+    metrics.push(["NADH", formatValue(payload.final_state.cell.cytosol?.nadh ?? 0)]);
+    metrics.push(["Env Glucose", formatValue(payload.final_state.environment?.glucose_concentration ?? 0)]);
     metrics.push(["Final Biomass", formatValue(payload.final_state.cell.biomass)]);
     metrics.push(["Steps", payload.final_state.step]);
   }

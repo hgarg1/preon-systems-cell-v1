@@ -1,0 +1,15 @@
+INFO:     127.0.0.1:50982 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51035 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51036 - "GET /static/app.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:51035 - "GET /static/styles.css HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:51035 - "GET /api/default-scenario HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51035 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:52161 - "POST /api/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52165 - "POST /api/cells HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52170 - "GET /api/default-scenario HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52170 - "POST /api/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54266 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54266 - "GET /static/styles.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54267 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54266 - "GET /api/default-scenario HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:54267 - "GET /favicon.ico HTTP/1.1" 404 Not Found

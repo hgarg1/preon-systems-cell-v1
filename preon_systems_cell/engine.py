@@ -14,7 +14,7 @@ from preon_systems_cell.models import (
 )
 
 
-ENGINE_VERSION = "0.1.0"
+ENGINE_VERSION = "0.2.0"
 
 
 def _metrics(state: WorldState) -> StepMetrics:
@@ -23,11 +23,14 @@ def _metrics(state: WorldState) -> StepMetrics:
         time=state.time,
         atp=state.cell.energy.atp,
         adp=state.cell.energy.adp,
-        nutrient_reserve=state.cell.nutrient_reserve,
-        environment_nutrients=state.environment.nutrient_concentration,
+        cytosolic_glucose=state.cell.cytosol.glucose,
+        pyruvate=state.cell.cytosol.pyruvate,
+        nadh=state.cell.cytosol.nadh,
+        environment_glucose=state.environment.glucose_concentration,
         waste=state.cell.waste,
         toxicity=state.environment.toxicity,
         membrane_integrity=state.cell.membrane_integrity,
+        glucose_transporter_density=state.cell.glucose_transporter_density,
         biomass=state.cell.biomass,
         x=state.cell.x,
         y=state.cell.y,
@@ -46,48 +49,84 @@ def _event(state: WorldState, event_type: EventType, message: str, **values: flo
 
 
 def _apply_environment_supply(state: WorldState, scenario: Scenario) -> None:
-    state.environment.nutrient_concentration += scenario.environment.replenishment_rate * scenario.simulation.dt
-    state.environment.toxicity += scenario.environment.toxicity_rate * scenario.simulation.dt
+    env = state.environment
+    if env.glucose_concentration < env.basal_glucose_level:
+        replenishment = min(
+            scenario.environment.glucose_replenishment_rate * scenario.simulation.dt,
+            env.basal_glucose_level - env.glucose_concentration,
+        )
+        env.glucose_concentration += replenishment
+    env.toxicity += scenario.environment.toxicity_rate * scenario.simulation.dt
 
 
 def _apply_transport(state: WorldState, scenario: Scenario, events: list[Event]) -> None:
     cell = state.cell
     env = state.environment
-    if not cell.alive or env.nutrient_concentration <= 0:
+    if not cell.alive or env.glucose_concentration <= cell.cytosol.glucose:
         return
 
     membrane_factor = max(cell.membrane_integrity, 0.05)
-    uptake_capacity = scenario.transport.uptake_rate * membrane_factor * scenario.simulation.dt
-    max_affordable = cell.energy.atp / max(scenario.transport.atp_cost_per_unit, 1e-9)
-    imported = min(env.nutrient_concentration, uptake_capacity, max_affordable)
+    gradient = env.glucose_concentration - cell.cytosol.glucose
+    flux_cap = (
+        scenario.transport.passive_diffusion_rate
+        * cell.glucose_transporter_density
+        * membrane_factor
+        * scenario.simulation.dt
+    )
+    imported = min(gradient, flux_cap, env.glucose_concentration)
     if imported <= 0:
         return
 
-    transport_cost = imported * scenario.transport.atp_cost_per_unit
-    cell.energy.atp -= transport_cost
-    cell.energy.adp += transport_cost
-    cell.nutrient_reserve += imported
-    env.nutrient_concentration -= imported
-    events.append(_event(state, EventType.TRANSPORT, "Imported nutrients across the membrane", imported=imported, atp_cost=transport_cost))
+    environment_before = env.glucose_concentration
+    cytosol_before = cell.cytosol.glucose
+    env.glucose_concentration -= imported
+    cell.cytosol.glucose += imported
+    events.append(
+        _event(
+            state,
+            EventType.TRANSPORT,
+            "Imported glucose by passive membrane transport",
+            imported_glucose=imported,
+            gradient=gradient,
+            environment_glucose_before=environment_before,
+            environment_glucose_after=env.glucose_concentration,
+            cytosol_glucose_before=cytosol_before,
+            cytosol_glucose_after=cell.cytosol.glucose,
+        )
+    )
 
 
-def _apply_metabolism(state: WorldState, scenario: Scenario, rng: Random, events: list[Event]) -> None:
+def _apply_metabolism(state: WorldState, scenario: Scenario, _rng: Random, events: list[Event]) -> None:
     cell = state.cell
-    if not cell.alive or cell.nutrient_reserve <= 0:
+    if not cell.alive or cell.cytosol.glucose <= 0:
         return
 
-    metabolic_efficiency = 0.92 + (rng.random() * 0.06)
-    converted = min(cell.nutrient_reserve, scenario.metabolism.reserve_conversion_cap * scenario.simulation.dt)
-    if converted <= 0:
+    processed = min(
+        cell.cytosol.glucose,
+        scenario.metabolism.glucose_processing_cap_per_step * scenario.simulation.dt,
+    )
+    if processed <= 0:
         return
 
-    produced_atp = converted * scenario.metabolism.atp_yield_per_nutrient * metabolic_efficiency
-    waste_generated = converted * scenario.metabolism.waste_per_nutrient
-    cell.nutrient_reserve -= converted
-    cell.energy.atp += produced_atp
-    cell.energy.adp = max(cell.energy.adp - produced_atp, 0)
-    cell.waste += waste_generated
-    events.append(_event(state, EventType.METABOLISM, "Converted nutrient reserves into ATP", converted=converted, atp_generated=produced_atp, waste_generated=waste_generated))
+    pyruvate_generated = processed * 2.0
+    atp_generated = processed * 2.0
+    nadh_generated = processed * 2.0
+    cell.cytosol.glucose -= processed
+    cell.cytosol.pyruvate += pyruvate_generated
+    cell.cytosol.nadh += nadh_generated
+    cell.energy.atp += atp_generated
+    cell.energy.adp = max(cell.energy.adp - atp_generated, 0)
+    events.append(
+        _event(
+            state,
+            EventType.GLYCOLYSIS,
+            "Converted cytosolic glucose through glycolysis",
+            glucose_processed=processed,
+            pyruvate_generated=pyruvate_generated,
+            atp_generated=atp_generated,
+            nadh_generated=nadh_generated,
+        )
+    )
 
 
 def _apply_maintenance_and_repair(state: WorldState, scenario: Scenario, events: list[Event]) -> None:
@@ -107,14 +146,21 @@ def _apply_maintenance_and_repair(state: WorldState, scenario: Scenario, events:
 
     repair_target = min(1 - cell.membrane_integrity, scenario.maintenance.repair_rate * scenario.simulation.dt)
     if repair_target > 0:
-        repair_cost = repair_target * scenario.maintenance.repair_atp_cost
         affordable_repair = min(repair_target, cell.energy.atp / max(scenario.maintenance.repair_atp_cost, 1e-9))
         if affordable_repair > 0:
             actual_cost = affordable_repair * scenario.maintenance.repair_atp_cost
             cell.energy.atp -= actual_cost
             cell.energy.adp += actual_cost
             cell.membrane_integrity = min(cell.membrane_integrity + affordable_repair, 1)
-            events.append(_event(state, EventType.REPAIR, "Repaired membrane damage", repaired=affordable_repair, atp_cost=actual_cost))
+            events.append(
+                _event(
+                    state,
+                    EventType.REPAIR,
+                    "Repaired membrane damage",
+                    repaired=affordable_repair,
+                    atp_cost=actual_cost,
+                )
+            )
 
 
 def _apply_growth(state: WorldState, scenario: Scenario, events: list[Event]) -> None:
@@ -131,14 +177,40 @@ def _apply_growth(state: WorldState, scenario: Scenario, events: list[Event]) ->
     cell.energy.atp -= growth_cost
     cell.energy.adp += growth_cost
     cell.biomass += scenario.maintenance.biomass_gain_per_growth * scenario.simulation.dt
-    events.append(_event(state, EventType.GROWTH, "Invested ATP into biomass growth", atp_cost=growth_cost, biomass_gain=scenario.maintenance.biomass_gain_per_growth * scenario.simulation.dt))
+    events.append(
+        _event(
+            state,
+            EventType.GROWTH,
+            "Invested ATP into biomass growth",
+            atp_cost=growth_cost,
+            biomass_gain=scenario.maintenance.biomass_gain_per_growth * scenario.simulation.dt,
+        )
+    )
 
     if cell.biomass >= scenario.cell.division_biomass_threshold:
         cell.division_count += 1
         cell.biomass *= 0.5
         cell.energy.atp *= 0.5
         cell.energy.adp *= 0.5
-        events.append(_event(state, EventType.GROWTH, "Completed a simple division event", division_count=cell.division_count))
+        cell.cytosol.glucose *= 0.5
+        cell.cytosol.pyruvate *= 0.5
+        cell.cytosol.nadh *= 0.5
+        cell.waste *= 0.5
+        events.append(
+            _event(
+                state,
+                EventType.GROWTH,
+                "Completed a simple division event",
+                division_count=cell.division_count,
+                post_division_biomass=cell.biomass,
+                post_division_atp=cell.energy.atp,
+                post_division_adp=cell.energy.adp,
+                post_division_glucose=cell.cytosol.glucose,
+                post_division_pyruvate=cell.cytosol.pyruvate,
+                post_division_nadh=cell.cytosol.nadh,
+                post_division_waste=cell.waste,
+            )
+        )
 
 
 def _apply_movement(state: WorldState, scenario: Scenario, rng: Random, events: list[Event]) -> None:
@@ -174,26 +246,44 @@ def _apply_movement(state: WorldState, scenario: Scenario, rng: Random, events: 
 
 def _check_termination(state: WorldState, scenario: Scenario, events: list[Event]) -> TerminationReason | None:
     cell = state.cell
+    env = state.environment
     if cell.energy.atp < 0:
         events.append(_event(state, EventType.INVARIANT, "ATP dropped below zero", atp=cell.energy.atp))
         cell.energy.atp = 0
-    if cell.nutrient_reserve < 0:
-        events.append(_event(state, EventType.INVARIANT, "Nutrient reserve dropped below zero", reserve=cell.nutrient_reserve))
-        cell.nutrient_reserve = 0
-    if state.environment.nutrient_concentration < 0:
-        events.append(_event(state, EventType.INVARIANT, "Environment nutrients dropped below zero", environment_nutrients=state.environment.nutrient_concentration))
-        state.environment.nutrient_concentration = 0
+    if cell.cytosol.glucose < 0:
+        events.append(_event(state, EventType.INVARIANT, "Cytosolic glucose dropped below zero", glucose=cell.cytosol.glucose))
+        cell.cytosol.glucose = 0
+    if cell.cytosol.pyruvate < 0:
+        events.append(_event(state, EventType.INVARIANT, "Pyruvate dropped below zero", pyruvate=cell.cytosol.pyruvate))
+        cell.cytosol.pyruvate = 0
+    if cell.cytosol.nadh < 0:
+        events.append(_event(state, EventType.INVARIANT, "NADH dropped below zero", nadh=cell.cytosol.nadh))
+        cell.cytosol.nadh = 0
+    if env.glucose_concentration < 0:
+        events.append(
+            _event(
+                state,
+                EventType.INVARIANT,
+                "Environment glucose dropped below zero",
+                environment_glucose=env.glucose_concentration,
+            )
+        )
+        env.glucose_concentration = 0
 
     if cell.energy.atp <= 0:
         cell.alive = False
         return TerminationReason.ATP_DEPLETION
-    if cell.energy.atp < scenario.cell.maintenance_threshold_atp and cell.nutrient_reserve <= 0 and state.environment.nutrient_concentration <= 0:
+    if (
+        cell.energy.atp < scenario.cell.maintenance_threshold_atp
+        and cell.cytosol.glucose <= 0
+        and env.glucose_concentration <= 0
+    ):
         cell.alive = False
         return TerminationReason.STARVATION
     if cell.membrane_integrity <= 0:
         cell.alive = False
         return TerminationReason.MEMBRANE_FAILURE
-    if state.environment.toxicity + cell.waste >= max(10.0, scenario.cell.biomass * 3):
+    if env.toxicity + cell.waste >= max(10.0, scenario.cell.biomass * 3):
         cell.alive = False
         return TerminationReason.TOXICITY
     return None

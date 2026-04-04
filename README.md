@@ -1,12 +1,12 @@
 # Preon Systems Cell
 
-Preon Systems Cell is a deterministic, ATP-centric simulation engine for a
+Preon Systems Cell is a deterministic, glucose-centric simulation engine for a
 scientifically anchored, prokaryote-like cell model.
 
 ## What It Does
 
 - Loads typed YAML scenarios.
-- Validates world, cell, transport, and metabolism parameters.
+- Validates world, cell, transport, cytosol, and glycolysis parameters.
 - Runs discrete-time simulations with deterministic seeds.
 - Emits structured JSON artifacts for metrics, events, and final state.
 - Exposes both a Python API and a CLI.
@@ -50,11 +50,12 @@ Available routes:
 
 ## Model Overview
 
-The v1 engine models a simple prokaryote-like cell with:
+The v2 engine models a simple prokaryote-like cell with:
 
-- membrane transport from the environment into the cytoplasm
-- ATP generation from imported nutrients
-- ATP consumption for maintenance, transport, repair, and growth
+- environmental glucose maintained around a basal level
+- passive glucose transport across the membrane into the cytosol
+- glycolysis that converts glucose into pyruvate, ATP, and NADH
+- ATP consumption for maintenance, repair, and growth
 - membrane integrity loss and repair
 - viability checks driven by explicit termination conditions
 

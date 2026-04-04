@@ -1,16 +1,14 @@
-version: 1
+version: 2
 scenario_name: default_cell
 environment:
-  nutrient_concentration: 24.0
-  replenishment_rate: 0.9
+  glucose_concentration: 24.0
+  basal_glucose_level: 24.0
+  glucose_replenishment_rate: 0.9
   toxicity_rate: 0.04
 transport:
-  uptake_rate: 2.6
-  atp_cost_per_unit: 0.35
+  passive_diffusion_rate: 2.6
 metabolism:
-  atp_yield_per_nutrient: 3.1
-  waste_per_nutrient: 0.22
-  reserve_conversion_cap: 2.1
+  glucose_processing_cap_per_step: 2.1
 maintenance:
   basal_atp_cost: 1.9
   membrane_decay: 0.03
@@ -27,9 +25,13 @@ cell:
   name: Preon_Systems
   initial_atp: 14.0
   initial_adp: 4.0
-  nutrient_reserve: 1.2
+  cytosol:
+    glucose: 1.2
+    pyruvate: 0.0
+    nadh: 0.0
   waste: 0.1
   membrane_integrity: 0.96
+  glucose_transporter_density: 1.1
   biomass: 1.0
   maintenance_threshold_atp: 1.5
   division_biomass_threshold: 2.4

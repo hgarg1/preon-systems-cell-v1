@@ -12,7 +12,7 @@ from preon_systems_cell.web import main as run_web_server
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="simulate", description="Run ATP-centric cell simulations.")
+    parser = argparse.ArgumentParser(prog="simulate", description="Run glucose-centric cell simulations.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     validate_parser = subparsers.add_parser("validate", help="Validate a scenario YAML file.")
