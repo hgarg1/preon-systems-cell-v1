@@ -2,7 +2,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from preon_systems_cell.models import Scenario, TerminationReason
+from preon_systems_cell.models import Scenario, TerminationReason, WorldState
 
 
 def test_invalid_v1_scenario_rejected():
@@ -48,11 +48,56 @@ simulation:
         Scenario.model_validate(payload)
 
 
-def test_v2_scenario_requires_positive_diffusion_and_metabolism_caps():
+def test_v2_scenario_rejected_by_v3_schema():
     payload = yaml.safe_load(
         """
 version: 2
-scenario_name: bad_v2
+scenario_name: old_v2
+environment:
+  glucose_concentration: 10
+  basal_glucose_level: 10
+  glucose_replenishment_rate: 0
+  toxicity_rate: 0.01
+transport:
+  passive_diffusion_rate: 1
+metabolism:
+  glucose_processing_cap_per_step: 1
+maintenance:
+  basal_atp_cost: 1
+  membrane_decay: 0
+  repair_rate: 0
+  repair_atp_cost: 0
+  growth_atp_cost: 0
+  biomass_gain_per_growth: 0
+cell:
+  name: old
+  initial_atp: 1
+  initial_adp: 1
+  cytosol:
+    glucose: 0
+    pyruvate: 0
+    nadh: 0
+  waste: 0
+  membrane_integrity: 1
+  glucose_transporter_density: 1
+  biomass: 1
+  maintenance_threshold_atp: 1
+  division_biomass_threshold: 2
+simulation:
+  dt: 1
+  max_steps: 2
+  record_every: 1
+"""
+    )
+    with pytest.raises(ValidationError):
+        Scenario.model_validate(payload)
+
+
+def test_v3_scenario_requires_positive_diffusion_and_metabolism_caps():
+    payload = yaml.safe_load(
+        """
+version: 3
+scenario_name: bad_v3
 environment:
   glucose_concentration: 10
   basal_glucose_level: 10
@@ -71,6 +116,8 @@ maintenance:
   biomass_gain_per_growth: 0
 cell:
   name: bad
+  initial_cell_id: cell-1
+  max_population: 128
   initial_atp: 1
   initial_adp: 0
   cytosol:
@@ -93,55 +140,23 @@ simulation:
         Scenario.model_validate(payload)
 
 
-def test_legacy_v2_scenario_without_respiration_fields_gets_defaults():
+def test_world_state_requires_population_cells():
     payload = yaml.safe_load(
         """
-version: 2
-scenario_name: legacy_v2
+step: 0
+time: 0
+cells: []
 environment:
-  glucose_concentration: 10
-  basal_glucose_level: 10
-  glucose_replenishment_rate: 0
-  toxicity_rate: 0.01
-transport:
-  passive_diffusion_rate: 1
-metabolism:
-  glucose_processing_cap_per_step: 1
-maintenance:
-  basal_atp_cost: 1
-  membrane_decay: 0
-  repair_rate: 0
-  repair_atp_cost: 0
-  growth_atp_cost: 0
-  biomass_gain_per_growth: 0
-cell:
-  name: legacy
-  initial_atp: 1
-  initial_adp: 1
-  cytosol:
-    glucose: 0
-    pyruvate: 0
-    nadh: 0
-  waste: 0
-  membrane_integrity: 1
-  glucose_transporter_density: 1
-  biomass: 1
-  maintenance_threshold_atp: 1
-  division_biomass_threshold: 2
-simulation:
-  dt: 1
-  max_steps: 2
-  record_every: 1
+  glucose_concentration: 1
+  basal_glucose_level: 1
+  toxicity: 0
 """
     )
 
-    scenario = Scenario.model_validate(payload)
-
-    assert scenario.environment.electron_acceptor_concentration == 24
-    assert scenario.metabolism.pyruvate_oxidation_cap_per_step == 2
-    assert scenario.cell.cytosol.nad_plus == 10
-    assert scenario.cell.cytosol.fad == 4
+    with pytest.raises(ValidationError):
+        WorldState.model_validate(payload)
 
 
 def test_termination_reason_enum_is_stable():
+    assert TerminationReason.ALL_CELLS_DEAD.value == "all_cells_dead"
     assert TerminationReason.ATP_DEPLETION.value == "atp_depletion"

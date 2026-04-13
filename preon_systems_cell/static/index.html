@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Preon Systems | Cell Simulation Engine</title>
+    <title>Preon Systems | Cell v3 Population Engine</title>
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
@@ -13,7 +14,7 @@
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="logo"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
           <div class="brand-text">
             <h1>Preon Systems</h1>
-            <p>Cell v2 Simulation Engine</p>
+            <p>Cell v3 Population Engine</p>
           </div>
         </div>
         
@@ -135,7 +136,7 @@
             <div class="panel">
               <div class="panel-header">
                 <h2>Scenario JSON</h2>
-                <span class="subtle">Schema v2</span>
+                <span class="subtle">Schema v3</span>
               </div>
               <div class="editor-container">
                 <textarea id="scenario" spellcheck="false" placeholder="Paste or edit scenario JSON..."></textarea>
@@ -176,13 +177,13 @@
               <div id="schema-tab" class="tab-content">
                 <div class="schema-view">
                   <div class="schema-section">
-                    <h3>Scenario (v2)</h3>
+                    <h3>Scenario (v3)</h3>
                     <ul class="schema-list">
                       <li><b>environment:</b> glucose_concentration, basal_glucose_level, glucose_replenishment_rate, electron_acceptor_concentration, basal_electron_acceptor_level, electron_acceptor_replenishment_rate, toxicity_rate</li>
                       <li><b>transport:</b> passive_diffusion_rate</li>
                       <li><b>metabolism:</b> glucose_processing_cap_per_step, pyruvate_oxidation_cap_per_step, tca_cycle_cap_per_step, electron_transport_cap_per_step, oxidative_phosphorylation_cap_per_step</li>
                       <li><b>maintenance:</b> basal_atp_cost, membrane_decay, repair_rate, growth_atp_cost</li>
-                      <li><b>cell:</b> initial_atp, cytosol.glucose, cytosol.pyruvate, cytosol.nadh, cytosol.acetyl_coa, cytosol.nad_plus, cytosol.fad, cytosol.fadh2, cytosol.co2, cytosol.membrane_gradient, glucose_transporter_density, membrane_integrity, biomass, x, y, z</li>
+                      <li><b>cell:</b> initial_cell_id, max_population, initial_atp, cytosol.glucose, cytosol.pyruvate, cytosol.nadh, cytosol.acetyl_coa, cytosol.nad_plus, cytosol.fad, cytosol.fadh2, cytosol.co2, cytosol.membrane_gradient, glucose_transporter_density, membrane_integrity, biomass, x, y, z</li>
                     </ul>
                   </div>
                   <div class="schema-section">
@@ -229,6 +230,24 @@
       </div>
     </div>
 
+    <div id="cell-modal" class="modal">
+      <div class="modal-content cell-modal-content">
+        <div class="modal-header cell-modal-header">
+          <div>
+            <h2 id="cell-modal-title">Cell Details</h2>
+            <p id="cell-modal-subtitle" class="modal-subtitle">Lineage and lifecycle</p>
+          </div>
+          <button id="close-cell-modal" class="btn-icon" title="Close cell details">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+        <div id="cell-modal-body" class="modal-body cell-modal-body">
+          <div class="empty-results">Double-click a cell row to inspect it.</div>
+        </div>
+      </div>
+    </div>
+
+    <script src="/static/vendor/three.min.js?v=149" defer></script>
     <script src="/static/app.js" defer></script>
   </body>
 </html>

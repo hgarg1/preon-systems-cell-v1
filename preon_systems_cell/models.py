@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class TerminationReason(StrEnum):
+    ALL_CELLS_DEAD = "all_cells_dead"
     ATP_DEPLETION = "atp_depletion"
     STARVATION = "starvation"
     MEMBRANE_FAILURE = "membrane_failure"
@@ -24,10 +25,19 @@ class EventType(StrEnum):
     MAINTENANCE = "maintenance"
     REPAIR = "repair"
     GROWTH = "growth"
+    DIVISION = "division"
+    POPULATION_CAP = "population_cap"
     MOVEMENT = "movement"
     DAMAGE = "damage"
+    DEATH = "death"
     TERMINATION = "termination"
     INVARIANT = "invariant"
+
+
+class CellStatus(StrEnum):
+    ALIVE = "alive"
+    DIVIDED = "divided"
+    DEAD = "dead"
 
 
 class BaseConfigModel(BaseModel):
@@ -90,6 +100,8 @@ class CytosolConfig(BaseConfigModel):
 
 class CellConfig(BaseConfigModel):
     name: str = Field(min_length=1)
+    initial_cell_id: str = Field(default="cell-1", min_length=1)
+    max_population: int = Field(default=128, ge=1)
     initial_atp: float = Field(gt=0)
     initial_adp: float = Field(ge=0)
     cytosol: CytosolConfig
@@ -111,7 +123,7 @@ class SimulationConfig(BaseConfigModel):
 
 
 class Scenario(BaseConfigModel):
-    version: int = Field(default=2)
+    version: int = Field(default=3)
     scenario_name: str = Field(min_length=1)
     environment: EnvironmentConfig
     transport: TransportConfig
@@ -123,8 +135,8 @@ class Scenario(BaseConfigModel):
 
     @model_validator(mode="after")
     def validate_cross_field_rules(self) -> "Scenario":
-        if self.version != 2:
-            raise ValueError("scenario version must be 2")
+        if self.version != 3:
+            raise ValueError("scenario version must be 3")
         if self.maintenance.repair_rate > 0 and self.maintenance.repair_atp_cost == 0:
             raise ValueError("repair_atp_cost must be positive when repair_rate is enabled")
         if self.maintenance.biomass_gain_per_growth > 0 and self.maintenance.growth_atp_cost == 0:
@@ -171,6 +183,12 @@ class CytosolState(BaseConfigModel):
 
 
 class CellState(BaseConfigModel):
+    id: str = Field(min_length=1)
+    parent_id: str | None = None
+    generation: int = Field(ge=0, default=0)
+    birth_step: int = Field(ge=0, default=0)
+    death_step: int | None = Field(default=None, ge=0)
+    status: CellStatus = CellStatus.ALIVE
     name: str
     energy: EnergyState
     cytosol: CytosolState
@@ -196,7 +214,7 @@ class EnvironmentState(BaseConfigModel):
 class WorldState(BaseConfigModel):
     step: int = 0
     time: float = 0
-    cell: CellState
+    cells: list[CellState] = Field(min_length=1)
     environment: EnvironmentState
 
 
@@ -208,41 +226,36 @@ class Event(BaseConfigModel):
     values: dict[str, Any] = Field(default_factory=dict)
 
 
-class StepMetrics(BaseConfigModel):
+class PopulationMetrics(BaseConfigModel):
     step: int
     time: float
-    atp: float
-    adp: float
-    cytosolic_glucose: float
-    pyruvate: float
-    nadh: float
-    acetyl_coa: float
-    nad_plus: float
-    fad: float
-    fadh2: float
-    co2: float
-    membrane_gradient: float
+    population_count: int
+    alive_count: int
+    dead_count: int
+    divided_count: int
+    division_count_total: int
+    total_atp: float
+    total_biomass: float
     environment_glucose: float
     environment_electron_acceptor: float
-    waste: float
     toxicity: float
-    membrane_integrity: float
-    glucose_transporter_density: float
-    biomass: float
-    x: float
-    y: float
-    z: float
+
+
+class StepSnapshot(PopulationMetrics):
+    state: WorldState
 
 
 class StepTransition(BaseConfigModel):
     state: WorldState
-    metrics: StepMetrics
+    metrics: PopulationMetrics
+    snapshot: StepSnapshot
     events: list[Event]
     terminated: bool = False
     termination_reason: TerminationReason | None = None
 
 
 class RunMetadata(BaseConfigModel):
+    run_id: str = "run-local"
     scenario_name: str
     engine_version: str
     seed: int
@@ -253,7 +266,7 @@ class RunMetadata(BaseConfigModel):
 class RunSummary(BaseConfigModel):
     metadata: RunMetadata
     final_state: WorldState
-    final_metrics: StepMetrics
+    final_metrics: PopulationMetrics
     termination_reason: TerminationReason
     steps_completed: int
     event_count: int
@@ -262,10 +275,79 @@ class RunSummary(BaseConfigModel):
 class RunArtifacts(BaseConfigModel):
     resolved_scenario: Scenario
     metadata: RunMetadata
-    metrics: list[StepMetrics]
+    metrics: list[PopulationMetrics]
+    snapshots: list[StepSnapshot]
     events: list[Event]
     final_state: WorldState
     termination_reason: TerminationReason
+
+
+class RunTimeSeriesPoint(BaseConfigModel):
+    step: int
+    time: float
+    population: int
+    alive: int
+    dead: int
+    divided: int
+    division_count_total: int
+    total_atp: float
+    total_biomass: float
+    atp_per_alive_cell: float | None
+    atp_per_population_cell: float | None
+    environment_glucose: float
+    environment_electron_acceptor: float
+    toxicity: float
+
+
+class RunTimeSeriesResponse(BaseConfigModel):
+    run_id: str
+    resolution: int
+    points: list[RunTimeSeriesPoint]
+
+
+class RunIntelligence(BaseConfigModel):
+    run_id: str
+    peak_population: int
+    time_to_peak_step: int | None
+    lifespan_steps: int
+    collapse_cause: str
+    early_growth_rate: float
+    late_growth_rate: float
+    growth_rate_delta: float
+    survival_ratio: float
+    energy_per_alive_cell_final: float | None
+    energy_per_population_cell_final: float | None
+    division_intensity: float
+
+
+class MetricDelta(BaseConfigModel):
+    baseline: float | int | None
+    value: float | int | None
+    absolute_delta: float | int | None
+    percent_delta: float | None
+
+
+class ComparedRun(BaseConfigModel):
+    run_id: str
+    scenario_name: str
+    seed: int
+    status: str
+    role: str
+    intelligence: RunIntelligence
+
+
+class ComparisonPoint(BaseConfigModel):
+    step: int
+    population: dict[str, int | None]
+    total_atp: dict[str, float | None]
+    atp_per_alive_cell: dict[str, float | None]
+
+
+class RunComparisonResponse(BaseConfigModel):
+    baseline_run_id: str
+    runs: list[ComparedRun]
+    deltas: dict[str, dict[str, MetricDelta]]
+    aligned_series: list[ComparisonPoint]
 
 
 class CytosolCreateParams(BaseConfigModel):
@@ -282,6 +364,8 @@ class CytosolCreateParams(BaseConfigModel):
 
 class CellCreateParams(BaseConfigModel):
     name: str | None = None
+    initial_cell_id: str | None = Field(default=None, min_length=1)
+    max_population: int | None = Field(default=None, ge=1)
     initial_atp: float | None = Field(default=None, gt=0)
     initial_adp: float | None = Field(default=None, ge=0)
     cytosol: CytosolCreateParams | None = None
@@ -303,28 +387,36 @@ class CellCreateResponse(BaseConfigModel):
 
 def build_initial_state(scenario: Scenario) -> WorldState:
     return WorldState(
-        cell=CellState(
-            name=scenario.cell.name,
-            energy=EnergyState(atp=scenario.cell.initial_atp, adp=scenario.cell.initial_adp),
-            cytosol=CytosolState(
-                glucose=scenario.cell.cytosol.glucose,
-                pyruvate=scenario.cell.cytosol.pyruvate,
-                nadh=scenario.cell.cytosol.nadh,
-                acetyl_coa=scenario.cell.cytosol.acetyl_coa,
-                nad_plus=scenario.cell.cytosol.nad_plus,
-                fad=scenario.cell.cytosol.fad,
-                fadh2=scenario.cell.cytosol.fadh2,
-                co2=scenario.cell.cytosol.co2,
-                membrane_gradient=scenario.cell.cytosol.membrane_gradient,
-            ),
-            waste=scenario.cell.waste,
-            membrane_integrity=scenario.cell.membrane_integrity,
-            glucose_transporter_density=scenario.cell.glucose_transporter_density,
-            biomass=scenario.cell.biomass,
-            x=scenario.cell.x,
-            y=scenario.cell.y,
-            z=scenario.cell.z,
-        ),
+        cells=[
+            CellState(
+                id=scenario.cell.initial_cell_id,
+                parent_id=None,
+                generation=0,
+                birth_step=0,
+                death_step=None,
+                status=CellStatus.ALIVE,
+                name=scenario.cell.name,
+                energy=EnergyState(atp=scenario.cell.initial_atp, adp=scenario.cell.initial_adp),
+                cytosol=CytosolState(
+                    glucose=scenario.cell.cytosol.glucose,
+                    pyruvate=scenario.cell.cytosol.pyruvate,
+                    nadh=scenario.cell.cytosol.nadh,
+                    acetyl_coa=scenario.cell.cytosol.acetyl_coa,
+                    nad_plus=scenario.cell.cytosol.nad_plus,
+                    fad=scenario.cell.cytosol.fad,
+                    fadh2=scenario.cell.cytosol.fadh2,
+                    co2=scenario.cell.cytosol.co2,
+                    membrane_gradient=scenario.cell.cytosol.membrane_gradient,
+                ),
+                waste=scenario.cell.waste,
+                membrane_integrity=scenario.cell.membrane_integrity,
+                glucose_transporter_density=scenario.cell.glucose_transporter_density,
+                biomass=scenario.cell.biomass,
+                x=scenario.cell.x,
+                y=scenario.cell.y,
+                z=scenario.cell.z,
+            )
+        ],
         environment=EnvironmentState(
             glucose_concentration=scenario.environment.glucose_concentration,
             basal_glucose_level=scenario.environment.basal_glucose_level,

@@ -1,4 +1,4 @@
-version: 2
+version: 3
 scenario_name: default_cell
 environment:
   glucose_concentration: 24.0
@@ -34,6 +34,8 @@ movement:
   atp_influence: 0.08
 cell:
   name: Preon_Systems
+  initial_cell_id: cell-1
+  max_population: 128
   initial_atp: 14.0
   initial_adp: 4.0
   cytosol:
