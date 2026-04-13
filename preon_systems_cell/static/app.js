@@ -606,8 +606,8 @@ function renderLineageThreeScene(cell, cells) {
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0x08111f, 6, 16);
 
-  const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 100);
-  camera.position.set(0, 1.15, 7.4);
+  const camera = new THREE.PerspectiveCamera(36, width / height, 0.1, 100);
+  camera.position.set(0, 1.0, 5.7);
   camera.lookAt(0, -0.1, 0);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -656,8 +656,11 @@ function renderLineageThreeScene(cell, cells) {
     halo.position.copy(node.position);
     group.add(halo);
 
-    const label = makeLineageLabel(`${node.cell.id}\ngen ${node.cell.generation ?? lineageDepth(node.cell.id)}`, color);
-    label.position.copy(node.position).add(new THREE.Vector3(0, -0.62, 0));
+    const label = makeLineageLabel(`${node.cell.id}\ngen ${node.cell.generation ?? lineageDepth(node.cell.id)}`, color, {
+      prominent: node.role === "selected",
+    });
+    label.position.copy(node.position).add(new THREE.Vector3(0, node.role === "selected" ? -0.86 : -0.76, 0.04));
+    label.renderOrder = 25;
     group.add(label);
   });
 
@@ -734,31 +737,77 @@ function makeTubeBetween(from, to, color) {
   return tube;
 }
 
-function makeLineageLabel(text, color) {
+function makeLineageLabel(text, color, options = {}) {
   const canvas = document.createElement("canvas");
-  canvas.width = 320;
-  canvas.height = 128;
+  canvas.width = 560;
+  canvas.height = 216;
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "rgba(8, 17, 31, 0.78)";
-  roundRect(ctx, 18, 18, 284, 86, 16);
+
+  ctx.shadowColor = "rgba(0, 0, 0, 0.58)";
+  ctx.shadowBlur = 20;
+  ctx.shadowOffsetY = 8;
+  ctx.fillStyle = "rgba(2, 6, 23, 0.94)";
+  roundRect(ctx, 28, 28, 504, 150, 18);
   ctx.fill();
+  ctx.shadowColor = "transparent";
+
   ctx.strokeStyle = `#${color.getHexString()}`;
-  ctx.lineWidth = 3;
-  roundRect(ctx, 18, 18, 284, 86, 16);
+  ctx.lineWidth = options.prominent ? 8 : 5;
+  roundRect(ctx, 28, 28, 504, 150, 18);
   ctx.stroke();
+
   const [id, gen] = text.split("\n");
+  const displayId = fitCanvasText(ctx, id, 436, 36, "700", "Arial");
+  const displayGen = fitCanvasText(ctx, gen, 380, 24, "800", "Arial");
+
+  ctx.strokeStyle = "rgba(2, 6, 23, 0.82)";
+  ctx.lineWidth = 7;
+  ctx.lineJoin = "round";
   ctx.fillStyle = "#f8fafc";
-  ctx.font = "700 25px Arial";
+  ctx.font = `700 ${displayId.size}px Arial`;
   ctx.textAlign = "center";
-  ctx.fillText(id, 160, 54);
-  ctx.fillStyle = "#94a3b8";
-  ctx.font = "700 17px Arial";
-  ctx.fillText(gen, 160, 80);
+  ctx.strokeText(displayId.text, 280, 92);
+  ctx.fillText(displayId.text, 280, 92);
+
+  ctx.strokeStyle = "rgba(2, 6, 23, 0.7)";
+  ctx.lineWidth = 5;
+  ctx.fillStyle = "#cbd5e1";
+  ctx.font = `800 ${displayGen.size}px Arial`;
+  ctx.strokeText(displayGen.text, 280, 132);
+  ctx.fillText(displayGen.text, 280, 132);
+
   const texture = new THREE.CanvasTexture(canvas);
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
-  sprite.scale.set(1.25, 0.5, 1);
+  texture.anisotropy = 8;
+  texture.needsUpdate = true;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+  }));
+  sprite.scale.set(options.prominent ? 2.85 : 2.4, options.prominent ? 1.1 : 0.92, 1);
   return sprite;
+}
+
+function fitCanvasText(ctx, text, maxWidth, startSize, weight, family) {
+  let size = startSize;
+  const fullText = String(text || "-");
+  let candidate = fullText;
+  while (size > 18) {
+    ctx.font = `${weight} ${size}px ${family}`;
+    if (ctx.measureText(candidate).width <= maxWidth) return { text: candidate, size };
+    size -= 2;
+  }
+
+  ctx.font = `${weight} ${size}px ${family}`;
+  for (let maxChars = fullText.length - 1; maxChars >= 8; maxChars -= 1) {
+    const head = Math.ceil(maxChars / 2);
+    const tail = Math.floor(maxChars / 2);
+    candidate = `${fullText.slice(0, head)}...${fullText.slice(-tail)}`;
+    if (ctx.measureText(candidate).width <= maxWidth) break;
+  }
+  return { text: candidate, size };
 }
 
 function roundRect(ctx, x, y, width, height, radius) {
