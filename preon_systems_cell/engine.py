@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from random import Random
+from typing import Any
 
 from preon_systems_cell.models import (
     Event,
@@ -26,7 +27,14 @@ def _metrics(state: WorldState) -> StepMetrics:
         cytosolic_glucose=state.cell.cytosol.glucose,
         pyruvate=state.cell.cytosol.pyruvate,
         nadh=state.cell.cytosol.nadh,
+        acetyl_coa=state.cell.cytosol.acetyl_coa,
+        nad_plus=state.cell.cytosol.nad_plus,
+        fad=state.cell.cytosol.fad,
+        fadh2=state.cell.cytosol.fadh2,
+        co2=state.cell.cytosol.co2,
+        membrane_gradient=state.cell.cytosol.membrane_gradient,
         environment_glucose=state.environment.glucose_concentration,
+        environment_electron_acceptor=state.environment.electron_acceptor_concentration,
         waste=state.cell.waste,
         toxicity=state.environment.toxicity,
         membrane_integrity=state.cell.membrane_integrity,
@@ -38,7 +46,7 @@ def _metrics(state: WorldState) -> StepMetrics:
     )
 
 
-def _event(state: WorldState, event_type: EventType, message: str, **values: float) -> Event:
+def _event(state: WorldState, event_type: EventType, message: str, **values: Any) -> Event:
     return Event(
         step=state.step,
         time=state.time,
@@ -56,6 +64,12 @@ def _apply_environment_supply(state: WorldState, scenario: Scenario) -> None:
             env.basal_glucose_level - env.glucose_concentration,
         )
         env.glucose_concentration += replenishment
+    if env.electron_acceptor_concentration < env.basal_electron_acceptor_level:
+        electron_acceptor_replenishment = min(
+            scenario.environment.electron_acceptor_replenishment_rate * scenario.simulation.dt,
+            env.basal_electron_acceptor_level - env.electron_acceptor_concentration,
+        )
+        env.electron_acceptor_concentration += electron_acceptor_replenishment
     env.toxicity += scenario.environment.toxicity_rate * scenario.simulation.dt
 
 
@@ -129,6 +143,157 @@ def _apply_metabolism(state: WorldState, scenario: Scenario, _rng: Random, event
     )
 
 
+def _apply_pyruvate_oxidation(state: WorldState, scenario: Scenario, events: list[Event]) -> None:
+    cell = state.cell
+    cytosol = cell.cytosol
+    cap = scenario.metabolism.pyruvate_oxidation_cap_per_step * scenario.simulation.dt
+    if not cell.alive or cap <= 0 or cytosol.pyruvate <= 0 or cytosol.nad_plus <= 0:
+        return
+
+    oxidized = min(cytosol.pyruvate, cytosol.nad_plus, cap)
+    if oxidized <= 0:
+        return
+
+    cytosol.pyruvate -= oxidized
+    cytosol.nad_plus -= oxidized
+    cytosol.acetyl_coa += oxidized
+    cytosol.co2 += oxidized
+    cytosol.nadh += oxidized
+    events.append(
+        _event(
+            state,
+            EventType.PYRUVATE_OXIDATION,
+            "Oxidized pyruvate into acetyl-CoA",
+            pyruvate_oxidized=oxidized,
+            acetyl_coa_generated=oxidized,
+            co2_generated=oxidized,
+            nadh_generated=oxidized,
+            nad_plus_consumed=oxidized,
+        )
+    )
+
+
+def _apply_tca_cycle(state: WorldState, scenario: Scenario, events: list[Event]) -> None:
+    cell = state.cell
+    cytosol = cell.cytosol
+    cap = scenario.metabolism.tca_cycle_cap_per_step * scenario.simulation.dt
+    if (
+        not cell.alive
+        or cap <= 0
+        or cytosol.acetyl_coa <= 0
+        or cytosol.nad_plus < 3
+        or cytosol.fad <= 0
+        or cell.energy.adp <= 0
+    ):
+        return
+
+    turns = min(cytosol.acetyl_coa, cytosol.nad_plus / 3.0, cytosol.fad, cell.energy.adp, cap)
+    if turns <= 0:
+        return
+
+    cytosol.acetyl_coa -= turns
+    cytosol.nad_plus -= turns * 3.0
+    cytosol.fad -= turns
+    cell.energy.adp -= turns
+    cytosol.co2 += turns * 2.0
+    cytosol.nadh += turns * 3.0
+    cytosol.fadh2 += turns
+    cell.energy.atp += turns
+    events.append(
+        _event(
+            state,
+            EventType.TCA_CYCLE,
+            "Processed acetyl-CoA through the citric acid cycle",
+            tca_turns=turns,
+            acetyl_coa_consumed=turns,
+            co2_generated=turns * 2.0,
+            nadh_generated=turns * 3.0,
+            fadh2_generated=turns,
+            atp_generated=turns,
+        )
+    )
+
+
+def _apply_electron_transport(state: WorldState, scenario: Scenario, events: list[Event]) -> None:
+    cell = state.cell
+    cytosol = cell.cytosol
+    env = state.environment
+    cap = scenario.metabolism.electron_transport_cap_per_step * scenario.simulation.dt
+    if not cell.alive or cap <= 0 or env.electron_acceptor_concentration <= 0:
+        return
+
+    remaining_capacity = cap
+    nadh_oxidized = min(cytosol.nadh, env.electron_acceptor_concentration, remaining_capacity)
+    if nadh_oxidized > 0:
+        cytosol.nadh -= nadh_oxidized
+        cytosol.nad_plus += nadh_oxidized
+        env.electron_acceptor_concentration -= nadh_oxidized
+        cytosol.membrane_gradient += nadh_oxidized * scenario.metabolism.gradient_per_nadh
+        remaining_capacity -= nadh_oxidized
+
+    fadh2_oxidized = min(cytosol.fadh2, env.electron_acceptor_concentration, remaining_capacity)
+    if fadh2_oxidized > 0:
+        cytosol.fadh2 -= fadh2_oxidized
+        cytosol.fad += fadh2_oxidized
+        env.electron_acceptor_concentration -= fadh2_oxidized
+        cytosol.membrane_gradient += fadh2_oxidized * scenario.metabolism.gradient_per_fadh2
+
+    if nadh_oxidized <= 0 and fadh2_oxidized <= 0:
+        return
+
+    events.append(
+        _event(
+            state,
+            EventType.ELECTRON_TRANSPORT,
+            "Moved carrier electrons onto the terminal acceptor",
+            nadh_oxidized=nadh_oxidized,
+            fadh2_oxidized=fadh2_oxidized,
+            electron_acceptor_consumed=nadh_oxidized + fadh2_oxidized,
+            gradient_generated=(
+                nadh_oxidized * scenario.metabolism.gradient_per_nadh
+                + fadh2_oxidized * scenario.metabolism.gradient_per_fadh2
+            ),
+        )
+    )
+
+
+def _apply_oxidative_phosphorylation(state: WorldState, scenario: Scenario, events: list[Event]) -> None:
+    cell = state.cell
+    cytosol = cell.cytosol
+    cap = scenario.metabolism.oxidative_phosphorylation_cap_per_step * scenario.simulation.dt
+    atp_per_gradient = scenario.metabolism.atp_per_gradient
+    if not cell.alive or cap <= 0 or atp_per_gradient <= 0 or cytosol.membrane_gradient <= 0 or cell.energy.adp <= 0:
+        return
+
+    gradient_used = min(cytosol.membrane_gradient, cell.energy.adp / atp_per_gradient, cap)
+    if gradient_used <= 0:
+        return
+
+    atp_generated = gradient_used * atp_per_gradient
+    cytosol.membrane_gradient -= gradient_used
+    cell.energy.atp += atp_generated
+    cell.energy.adp -= atp_generated
+    events.append(
+        _event(
+            state,
+            EventType.OXIDATIVE_PHOSPHORYLATION,
+            "Converted membrane gradient into ATP",
+            gradient_used=gradient_used,
+            atp_generated=atp_generated,
+        )
+    )
+
+
+def _apply_membrane_gradient_decay(state: WorldState, scenario: Scenario) -> None:
+    cell = state.cell
+    if not cell.alive:
+        return
+    gradient_loss = scenario.metabolism.membrane_gradient_decay * scenario.simulation.dt
+    if gradient_loss <= 0:
+        return
+    cell.cytosol.membrane_gradient = max(cell.cytosol.membrane_gradient - gradient_loss, 0)
+
+
 def _apply_maintenance_and_repair(state: WorldState, scenario: Scenario, events: list[Event]) -> None:
     cell = state.cell
     if not cell.alive:
@@ -195,6 +360,12 @@ def _apply_growth(state: WorldState, scenario: Scenario, events: list[Event]) ->
         cell.cytosol.glucose *= 0.5
         cell.cytosol.pyruvate *= 0.5
         cell.cytosol.nadh *= 0.5
+        cell.cytosol.acetyl_coa *= 0.5
+        cell.cytosol.nad_plus *= 0.5
+        cell.cytosol.fad *= 0.5
+        cell.cytosol.fadh2 *= 0.5
+        cell.cytosol.co2 *= 0.5
+        cell.cytosol.membrane_gradient *= 0.5
         cell.waste *= 0.5
         events.append(
             _event(
@@ -208,6 +379,12 @@ def _apply_growth(state: WorldState, scenario: Scenario, events: list[Event]) ->
                 post_division_glucose=cell.cytosol.glucose,
                 post_division_pyruvate=cell.cytosol.pyruvate,
                 post_division_nadh=cell.cytosol.nadh,
+                post_division_acetyl_coa=cell.cytosol.acetyl_coa,
+                post_division_nad_plus=cell.cytosol.nad_plus,
+                post_division_fad=cell.cytosol.fad,
+                post_division_fadh2=cell.cytosol.fadh2,
+                post_division_co2=cell.cytosol.co2,
+                post_division_membrane_gradient=cell.cytosol.membrane_gradient,
                 post_division_waste=cell.waste,
             )
         )
@@ -259,6 +436,31 @@ def _check_termination(state: WorldState, scenario: Scenario, events: list[Event
     if cell.cytosol.nadh < 0:
         events.append(_event(state, EventType.INVARIANT, "NADH dropped below zero", nadh=cell.cytosol.nadh))
         cell.cytosol.nadh = 0
+    if cell.cytosol.acetyl_coa < 0:
+        events.append(_event(state, EventType.INVARIANT, "Acetyl-CoA dropped below zero", acetyl_coa=cell.cytosol.acetyl_coa))
+        cell.cytosol.acetyl_coa = 0
+    if cell.cytosol.nad_plus < 0:
+        events.append(_event(state, EventType.INVARIANT, "NAD+ dropped below zero", nad_plus=cell.cytosol.nad_plus))
+        cell.cytosol.nad_plus = 0
+    if cell.cytosol.fad < 0:
+        events.append(_event(state, EventType.INVARIANT, "FAD dropped below zero", fad=cell.cytosol.fad))
+        cell.cytosol.fad = 0
+    if cell.cytosol.fadh2 < 0:
+        events.append(_event(state, EventType.INVARIANT, "FADH2 dropped below zero", fadh2=cell.cytosol.fadh2))
+        cell.cytosol.fadh2 = 0
+    if cell.cytosol.co2 < 0:
+        events.append(_event(state, EventType.INVARIANT, "CO2 dropped below zero", co2=cell.cytosol.co2))
+        cell.cytosol.co2 = 0
+    if cell.cytosol.membrane_gradient < 0:
+        events.append(
+            _event(
+                state,
+                EventType.INVARIANT,
+                "Membrane gradient dropped below zero",
+                membrane_gradient=cell.cytosol.membrane_gradient,
+            )
+        )
+        cell.cytosol.membrane_gradient = 0
     if env.glucose_concentration < 0:
         events.append(
             _event(
@@ -269,6 +471,16 @@ def _check_termination(state: WorldState, scenario: Scenario, events: list[Event
             )
         )
         env.glucose_concentration = 0
+    if env.electron_acceptor_concentration < 0:
+        events.append(
+            _event(
+                state,
+                EventType.INVARIANT,
+                "Environment electron acceptor dropped below zero",
+                environment_electron_acceptor=env.electron_acceptor_concentration,
+            )
+        )
+        env.electron_acceptor_concentration = 0
 
     if cell.energy.atp <= 0:
         cell.alive = False
@@ -298,6 +510,11 @@ def step_simulation(state: WorldState, scenario: Scenario, rng: Random) -> StepT
     _apply_environment_supply(next_state, scenario)
     _apply_transport(next_state, scenario, events)
     _apply_metabolism(next_state, scenario, rng, events)
+    _apply_pyruvate_oxidation(next_state, scenario, events)
+    _apply_tca_cycle(next_state, scenario, events)
+    _apply_electron_transport(next_state, scenario, events)
+    _apply_oxidative_phosphorylation(next_state, scenario, events)
+    _apply_membrane_gradient_decay(next_state, scenario)
     _apply_maintenance_and_repair(next_state, scenario, events)
     _apply_growth(next_state, scenario, events)
     _apply_movement(next_state, scenario, rng, events)

@@ -41,7 +41,17 @@ def test_create_cell_supports_position_and_cytosol_overrides():
             name="Scout",
             initial_atp=18.0,
             glucose_transporter_density=2.25,
-            cytosol=CytosolCreateParams(glucose=3.5, pyruvate=1.0, nadh=0.5),
+            cytosol=CytosolCreateParams(
+                glucose=3.5,
+                pyruvate=1.0,
+                nadh=0.5,
+                acetyl_coa=0.25,
+                nad_plus=9.0,
+                fad=3.0,
+                fadh2=0.75,
+                co2=1.25,
+                membrane_gradient=2.5,
+            ),
             x=3.5,
             y=-2.0,
             z=8.25,
@@ -54,6 +64,12 @@ def test_create_cell_supports_position_and_cytosol_overrides():
     assert created.state.cell.cytosol.glucose == 3.5
     assert created.state.cell.cytosol.pyruvate == 1.0
     assert created.state.cell.cytosol.nadh == 0.5
+    assert created.state.cell.cytosol.acetyl_coa == 0.25
+    assert created.state.cell.cytosol.nad_plus == 9.0
+    assert created.state.cell.cytosol.fad == 3.0
+    assert created.state.cell.cytosol.fadh2 == 0.75
+    assert created.state.cell.cytosol.co2 == 1.25
+    assert created.state.cell.cytosol.membrane_gradient == 2.5
     assert created.state.cell.x == 3.5
     assert created.state.cell.y == -2.0
     assert created.state.cell.z == 8.25

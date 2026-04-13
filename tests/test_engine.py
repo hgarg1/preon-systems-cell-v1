@@ -7,6 +7,14 @@ from preon_systems_cell.models import Scenario, build_initial_state
 
 
 def make_scenario(**overrides) -> Scenario:
+    def merge(base, update):
+        for key, value in update.items():
+            if isinstance(value, dict) and isinstance(base.get(key), dict):
+                merge(base[key], value)
+            else:
+                base[key] = value
+        return base
+
     payload = {
         "version": 2,
         "scenario_name": "engine_test",
@@ -21,6 +29,14 @@ def make_scenario(**overrides) -> Scenario:
         },
         "metabolism": {
             "glucose_processing_cap_per_step": 5.0,
+            "pyruvate_oxidation_cap_per_step": 0.0,
+            "tca_cycle_cap_per_step": 0.0,
+            "electron_transport_cap_per_step": 0.0,
+            "oxidative_phosphorylation_cap_per_step": 0.0,
+            "gradient_per_nadh": 2.5,
+            "gradient_per_fadh2": 1.5,
+            "atp_per_gradient": 1.0,
+            "membrane_gradient_decay": 0.0,
         },
         "maintenance": {
             "basal_atp_cost": 0.0,
@@ -44,6 +60,12 @@ def make_scenario(**overrides) -> Scenario:
                 "glucose": 0.0,
                 "pyruvate": 0.0,
                 "nadh": 0.0,
+                "acetyl_coa": 0.0,
+                "nad_plus": 10.0,
+                "fad": 4.0,
+                "fadh2": 0.0,
+                "co2": 0.0,
+                "membrane_gradient": 0.0,
             },
             "waste": 0.0,
             "membrane_integrity": 1.0,
@@ -62,8 +84,7 @@ def make_scenario(**overrides) -> Scenario:
         },
     }
 
-    for key, value in overrides.items():
-        payload[key] = value
+    merge(payload, overrides)
     return Scenario.model_validate(payload)
 
 
@@ -161,6 +182,194 @@ def test_glycolysis_obeys_exact_stoichiometry_and_cap():
     assert transition.state.cell.waste == 0.0
 
 
+def test_coarse_respiration_processes_pyruvate_through_tca_and_electron_transport():
+    scenario = make_scenario(
+        environment={
+            "glucose_concentration": 0.0,
+            "basal_glucose_level": 0.0,
+            "glucose_replenishment_rate": 0.0,
+            "toxicity_rate": 0.0,
+            "electron_acceptor_concentration": 10.0,
+            "basal_electron_acceptor_level": 10.0,
+            "electron_acceptor_replenishment_rate": 0.0,
+        },
+        cell={
+            "name": "TestCell",
+            "initial_atp": 4.0,
+            "initial_adp": 2.0,
+            "cytosol": {
+                "glucose": 0.0,
+                "pyruvate": 2.0,
+                "nadh": 0.0,
+                "acetyl_coa": 0.0,
+                "nad_plus": 10.0,
+                "fad": 4.0,
+                "fadh2": 0.0,
+                "co2": 0.0,
+                "membrane_gradient": 0.0,
+            },
+            "waste": 0.0,
+            "membrane_integrity": 1.0,
+            "glucose_transporter_density": 1.0,
+            "biomass": 1.0,
+            "maintenance_threshold_atp": 1.0,
+            "division_biomass_threshold": 2.0,
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+        },
+        metabolism={
+            "glucose_processing_cap_per_step": 0.01,
+            "pyruvate_oxidation_cap_per_step": 2.0,
+            "tca_cycle_cap_per_step": 1.0,
+            "electron_transport_cap_per_step": 2.0,
+            "oxidative_phosphorylation_cap_per_step": 0.0,
+            "gradient_per_nadh": 2.5,
+            "gradient_per_fadh2": 1.5,
+            "atp_per_gradient": 1.0,
+            "membrane_gradient_decay": 0.0,
+        },
+    )
+    state = build_initial_state(scenario)
+
+    transition = step_simulation(state, scenario, Random(1))
+    cell = transition.state.cell
+
+    assert cell.cytosol.pyruvate == pytest.approx(0.0)
+    assert cell.cytosol.acetyl_coa == pytest.approx(1.0)
+    assert cell.cytosol.co2 == pytest.approx(4.0)
+    assert cell.cytosol.nadh == pytest.approx(3.0)
+    assert cell.cytosol.nad_plus == pytest.approx(7.0)
+    assert cell.cytosol.fad == pytest.approx(3.0)
+    assert cell.cytosol.fadh2 == pytest.approx(1.0)
+    assert cell.cytosol.membrane_gradient == pytest.approx(5.0)
+    assert cell.energy.atp == pytest.approx(5.0)
+    assert cell.energy.adp == pytest.approx(1.0)
+    assert transition.state.environment.electron_acceptor_concentration == pytest.approx(8.0)
+    assert {event.type.value for event in transition.events} >= {
+        "pyruvate_oxidation",
+        "tca_cycle",
+        "electron_transport",
+    }
+
+
+def test_oxidative_phosphorylation_converts_gradient_and_adp_to_atp():
+    scenario = make_scenario(
+        environment={
+            "glucose_concentration": 0.0,
+            "basal_glucose_level": 0.0,
+            "glucose_replenishment_rate": 0.0,
+            "toxicity_rate": 0.0,
+        },
+        cell={
+            "name": "TestCell",
+            "initial_atp": 4.0,
+            "initial_adp": 2.0,
+            "cytosol": {
+                "glucose": 0.0,
+                "pyruvate": 0.0,
+                "nadh": 0.0,
+                "acetyl_coa": 0.0,
+                "nad_plus": 10.0,
+                "fad": 4.0,
+                "fadh2": 0.0,
+                "co2": 0.0,
+                "membrane_gradient": 3.0,
+            },
+            "waste": 0.0,
+            "membrane_integrity": 1.0,
+            "glucose_transporter_density": 1.0,
+            "biomass": 1.0,
+            "maintenance_threshold_atp": 1.0,
+            "division_biomass_threshold": 2.0,
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+        },
+        metabolism={
+            "glucose_processing_cap_per_step": 0.01,
+            "pyruvate_oxidation_cap_per_step": 0.0,
+            "tca_cycle_cap_per_step": 0.0,
+            "electron_transport_cap_per_step": 0.0,
+            "oxidative_phosphorylation_cap_per_step": 5.0,
+            "gradient_per_nadh": 2.5,
+            "gradient_per_fadh2": 1.5,
+            "atp_per_gradient": 1.0,
+            "membrane_gradient_decay": 0.0,
+        },
+    )
+    state = build_initial_state(scenario)
+
+    transition = step_simulation(state, scenario, Random(1))
+    cell = transition.state.cell
+
+    assert cell.cytosol.membrane_gradient == pytest.approx(1.0)
+    assert cell.energy.atp == pytest.approx(6.0)
+    assert cell.energy.adp == pytest.approx(0.0)
+    assert any(event.type.value == "oxidative_phosphorylation" for event in transition.events)
+
+
+def test_respiration_respects_missing_electron_acceptor_without_negative_pools():
+    scenario = make_scenario(
+        environment={
+            "glucose_concentration": 0.0,
+            "basal_glucose_level": 0.0,
+            "glucose_replenishment_rate": 0.0,
+            "toxicity_rate": 0.0,
+            "electron_acceptor_concentration": 0.5,
+            "basal_electron_acceptor_level": 0.5,
+            "electron_acceptor_replenishment_rate": 0.0,
+        },
+        cell={
+            "name": "TestCell",
+            "initial_atp": 4.0,
+            "initial_adp": 4.0,
+            "cytosol": {
+                "glucose": 0.0,
+                "pyruvate": 0.0,
+                "nadh": 3.0,
+                "acetyl_coa": 0.0,
+                "nad_plus": 7.0,
+                "fad": 3.0,
+                "fadh2": 2.0,
+                "co2": 0.0,
+                "membrane_gradient": 0.0,
+            },
+            "waste": 0.0,
+            "membrane_integrity": 1.0,
+            "glucose_transporter_density": 1.0,
+            "biomass": 1.0,
+            "maintenance_threshold_atp": 1.0,
+            "division_biomass_threshold": 2.0,
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+        },
+        metabolism={
+            "glucose_processing_cap_per_step": 0.01,
+            "pyruvate_oxidation_cap_per_step": 0.0,
+            "tca_cycle_cap_per_step": 0.0,
+            "electron_transport_cap_per_step": 10.0,
+            "oxidative_phosphorylation_cap_per_step": 0.0,
+            "gradient_per_nadh": 2.5,
+            "gradient_per_fadh2": 1.5,
+            "atp_per_gradient": 1.0,
+            "membrane_gradient_decay": 0.0,
+        },
+    )
+    state = build_initial_state(scenario)
+
+    transition = step_simulation(state, scenario, Random(1))
+    cell = transition.state.cell
+
+    assert transition.state.environment.electron_acceptor_concentration == pytest.approx(0.0)
+    assert cell.cytosol.nadh == pytest.approx(2.5)
+    assert cell.cytosol.fadh2 == pytest.approx(2.0)
+    assert cell.cytosol.nad_plus == pytest.approx(7.5)
+    assert cell.cytosol.fad == pytest.approx(3.0)
+    assert cell.cytosol.membrane_gradient == pytest.approx(1.25)
+
+
 def test_starvation_uses_glucose_pools():
     scenario = make_scenario(
         environment={
@@ -246,6 +455,12 @@ def test_division_partitions_soluble_pools_and_preserves_structure():
     assert cell.cytosol.glucose == pytest.approx(1.995)
     assert cell.cytosol.pyruvate == pytest.approx(4.01)
     assert cell.cytosol.nadh == pytest.approx(3.01)
+    assert cell.cytosol.acetyl_coa == pytest.approx(0.0)
+    assert cell.cytosol.nad_plus == pytest.approx(5.0)
+    assert cell.cytosol.fad == pytest.approx(2.0)
+    assert cell.cytosol.fadh2 == pytest.approx(0.0)
+    assert cell.cytosol.co2 == pytest.approx(0.0)
+    assert cell.cytosol.membrane_gradient == pytest.approx(0.0)
     assert cell.waste == pytest.approx(1.0)
     assert cell.membrane_integrity == 0.8
     assert cell.glucose_transporter_density == 1.25
@@ -256,6 +471,8 @@ def test_division_partitions_soluble_pools_and_preserves_structure():
     assert division_event.values["post_division_glucose"] == pytest.approx(1.995)
     assert division_event.values["post_division_pyruvate"] == pytest.approx(4.01)
     assert division_event.values["post_division_nadh"] == pytest.approx(3.01)
+    assert division_event.values["post_division_nad_plus"] == pytest.approx(5.0)
+    assert division_event.values["post_division_fad"] == pytest.approx(2.0)
     assert division_event.values["post_division_waste"] == pytest.approx(1.0)
 
 

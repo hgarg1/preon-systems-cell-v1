@@ -9,11 +9,11 @@ This repository implements a simplified, glucose-centric, prokaryote-like cell s
 The implemented state consists of:
 
 - Cell energy pools: ATP and ADP
-- Cytosol metabolites: glucose, pyruvate, and NADH
+- Cytosol metabolites: glucose, pyruvate, acetyl-CoA, NADH/NAD+, FADH2/FAD, CO2, and membrane gradient
 - Structural state: membrane integrity and glucose transporter density
 - Bulk state: biomass, waste, alive/dead, and division count
 - Spatial state: 3D position (`x`, `y`, `z`)
-- Environment state: glucose concentration, basal glucose target, and toxicity
+- Environment state: glucose concentration, generic electron acceptor concentration, basal targets, and toxicity
 
 Representative v2 state:
 
@@ -22,6 +22,12 @@ class CytosolState(BaseConfigModel):
     glucose: float = Field(ge=0)
     pyruvate: float = Field(ge=0)
     nadh: float = Field(ge=0)
+    acetyl_coa: float = Field(ge=0)
+    nad_plus: float = Field(ge=0)
+    fad: float = Field(ge=0)
+    fadh2: float = Field(ge=0)
+    co2: float = Field(ge=0)
+    membrane_gradient: float = Field(ge=0)
 
 
 class CellState(BaseConfigModel):
@@ -37,9 +43,14 @@ class CellState(BaseConfigModel):
 The implemented processes are:
 
 - Environment maintenance: external glucose replenishes toward a basal glucose level
+- Electron acceptor maintenance: the generic terminal acceptor replenishes toward a basal level
 - Passive membrane transport: glucose moves down its concentration gradient into the cytosol
 - Glycolysis: cytosolic glucose is converted with exact net stoichiometry:
   `1 glucose -> 2 pyruvate + 2 ATP + 2 NADH`
+- Pyruvate oxidation: `pyruvate + NAD+ -> acetyl-CoA + CO2 + NADH`
+- TCA cycle: `acetyl-CoA + 3 NAD+ + FAD + ADP -> 2 CO2 + 3 NADH + FADH2 + ATP`
+- Electron transport: NADH and FADH2 are oxidized using the generic terminal acceptor to build membrane gradient
+- Oxidative phosphorylation: membrane gradient and ADP are converted into ATP
 - Maintenance: ATP is consumed each step
 - Membrane damage and repair: integrity decays and can be repaired using ATP
 - Growth and division: ATP can be invested into biomass, with simple threshold-based division
@@ -68,14 +79,14 @@ cell.energy.adp = max(cell.energy.adp - processed * 2.0, 0)
 The v2 engine now includes an explicit cytosol and named glucose metabolism products, but it remains coarse:
 
 - Passive glucose transport is represented by a scalar transporter density, not binding kinetics
-- Glycolysis is modeled as a net reaction, not as enzyme-by-enzyme intermediates
-- Pyruvate and NADH accumulate in the cytosol and are not consumed downstream
+- Glycolysis, pyruvate oxidation, TCA, electron transport, and oxidative phosphorylation are modeled as net reactions, not as enzyme-by-enzyme intermediates
+- Electron transport uses a generic terminal acceptor instead of oxygen-specific chemistry
 - Waste, toxicity, growth, repair, and movement remain coarse-grained system-level processes
 
 Not implemented:
 
 - Receptor occupancy or state-transition transporters
-- TCA cycle, fermentation, oxidative phosphorylation, or downstream pyruvate/NADH usage
+- Fermentation, oxygen-specific respiration chemistry, or detailed electron transport complexes
 - DNA, RNA, proteins, gene regulation, signaling networks, or organelles
 - Osmotic balance, pH, temperature, or multicellular behavior
 
@@ -85,8 +96,9 @@ The bundled default scenario instantiates one cell in one environment with:
 
 - external glucose at a maintained basal level
 - passive diffusion across the membrane
-- cytosolic glucose, pyruvate, and NADH pools
+- cytosolic glucose, pyruvate, acetyl-CoA, NADH/NAD+, FADH2/FAD, CO2, and membrane gradient pools
 - glycolysis capped per step
+- coarse downstream respiration caps and carrier-gradient yields
 - existing maintenance, repair, growth, movement, and toxicity rules
 
 Representative default scenario excerpt:
@@ -97,14 +109,27 @@ environment:
   glucose_concentration: 24.0
   basal_glucose_level: 24.0
   glucose_replenishment_rate: 0.9
+  electron_acceptor_concentration: 24.0
+  basal_electron_acceptor_level: 24.0
+  electron_acceptor_replenishment_rate: 0.9
 transport:
   passive_diffusion_rate: 2.6
 metabolism:
   glucose_processing_cap_per_step: 2.1
+  pyruvate_oxidation_cap_per_step: 2.0
+  tca_cycle_cap_per_step: 2.0
+  electron_transport_cap_per_step: 4.0
+  oxidative_phosphorylation_cap_per_step: 4.0
 cell:
   cytosol:
     glucose: 1.2
     pyruvate: 0.0
     nadh: 0.0
+    acetyl_coa: 0.0
+    nad_plus: 10.0
+    fad: 4.0
+    fadh2: 0.0
+    co2: 0.0
+    membrane_gradient: 0.0
   glucose_transporter_density: 1.1
 ```

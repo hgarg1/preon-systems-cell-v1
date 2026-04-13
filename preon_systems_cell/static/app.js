@@ -79,6 +79,8 @@ async function loadDefaultScenario() {
 }
 
 async function submit(url) {
+  window.clearTimeout(editorSyncTimer);
+  editorSyncTimer = null;
   let scenario;
   try {
     scenario = JSON.parse(scenarioInput.value);
@@ -130,6 +132,8 @@ async function submit(url) {
 }
 
 async function createCell() {
+  window.clearTimeout(editorSyncTimer);
+  editorSyncTimer = null;
   let scenario;
   try {
     scenario = JSON.parse(scenarioInput.value);
@@ -209,6 +213,9 @@ function renderSummary(payload) {
     metrics.push(["Position", formatPosition(scenario.cell)]);
     metrics.push(["Initial ATP", formatValue(scenario.cell.initial_atp)]);
     metrics.push(["Cytosol Glucose", formatValue(scenario.cell.cytosol?.glucose ?? 0)]);
+    metrics.push(["NAD+", formatValue(scenario.cell.cytosol?.nad_plus ?? 0)]);
+    metrics.push(["FAD", formatValue(scenario.cell.cytosol?.fad ?? 0)]);
+    metrics.push(["Membrane Gradient", formatValue(scenario.cell.cytosol?.membrane_gradient ?? 0)]);
     metrics.push(["Biomass", formatValue(scenario.cell.biomass)]);
   } else if (payload.state?.cell) {
     metrics.push(["Position", formatPosition(payload.state.cell)]);
@@ -216,6 +223,12 @@ function renderSummary(payload) {
     metrics.push(["Cytosol Glucose", formatValue(payload.state.cell.cytosol?.glucose ?? 0)]);
     metrics.push(["Pyruvate", formatValue(payload.state.cell.cytosol?.pyruvate ?? 0)]);
     metrics.push(["NADH", formatValue(payload.state.cell.cytosol?.nadh ?? 0)]);
+    metrics.push(["Acetyl-CoA", formatValue(payload.state.cell.cytosol?.acetyl_coa ?? 0)]);
+    metrics.push(["NAD+", formatValue(payload.state.cell.cytosol?.nad_plus ?? 0)]);
+    metrics.push(["FADH2", formatValue(payload.state.cell.cytosol?.fadh2 ?? 0)]);
+    metrics.push(["Membrane Gradient", formatValue(payload.state.cell.cytosol?.membrane_gradient ?? 0)]);
+    metrics.push(["CO2", formatValue(payload.state.cell.cytosol?.co2 ?? 0)]);
+    metrics.push(["Electron Acceptor", formatValue(payload.state.environment?.electron_acceptor_concentration ?? 0)]);
     metrics.push(["Biomass", formatValue(payload.state.cell.biomass)]);
   } else if (payload.final_state) {
     metrics.push(["Position", formatPosition(payload.final_state.cell)]);
@@ -223,7 +236,13 @@ function renderSummary(payload) {
     metrics.push(["Cytosol Glucose", formatValue(payload.final_state.cell.cytosol?.glucose ?? 0)]);
     metrics.push(["Pyruvate", formatValue(payload.final_state.cell.cytosol?.pyruvate ?? 0)]);
     metrics.push(["NADH", formatValue(payload.final_state.cell.cytosol?.nadh ?? 0)]);
+    metrics.push(["Acetyl-CoA", formatValue(payload.final_state.cell.cytosol?.acetyl_coa ?? 0)]);
+    metrics.push(["NAD+", formatValue(payload.final_state.cell.cytosol?.nad_plus ?? 0)]);
+    metrics.push(["FADH2", formatValue(payload.final_state.cell.cytosol?.fadh2 ?? 0)]);
+    metrics.push(["Membrane Gradient", formatValue(payload.final_state.cell.cytosol?.membrane_gradient ?? 0)]);
+    metrics.push(["CO2", formatValue(payload.final_state.cell.cytosol?.co2 ?? 0)]);
     metrics.push(["Env Glucose", formatValue(payload.final_state.environment?.glucose_concentration ?? 0)]);
+    metrics.push(["Electron Acceptor", formatValue(payload.final_state.environment?.electron_acceptor_concentration ?? 0)]);
     metrics.push(["Final Biomass", formatValue(payload.final_state.cell.biomass)]);
     metrics.push(["Steps", payload.final_state.step]);
   }
@@ -300,9 +319,25 @@ function responseTitleFor(url, payload) {
   return "State Synchronized";
 }
 
+function isDivisionEvent(event) {
+  return event?.type === "growth" && event?.message === "Completed a simple division event";
+}
+
+function collectDivisionEventsByStep(events = []) {
+  const divisionEvents = new Map();
+  events.forEach((event) => {
+    if (isDivisionEvent(event)) divisionEvents.set(Number(event.step), event);
+  });
+  return divisionEvents;
+}
+
 function activityMessageFor(url, payload) {
   if (url.endsWith("/validate")) return payload.valid ? "Scenario configuration is healthy." : "Validation errors detected.";
-  if (url.endsWith("/run")) return `Run finished. Reason: ${payload.termination_reason || "MAX_STEPS"}.`;
+  if (url.endsWith("/run")) {
+    const divisionCount = (payload.events || []).filter(isDivisionEvent).length;
+    const divisionSuffix = divisionCount > 0 ? ` Division events: ${divisionCount}.` : "";
+    return `Run finished. Reason: ${payload.termination_reason || "MAX_STEPS"}.${divisionSuffix}`;
+  }
   return "State updated successfully.";
 }
 
@@ -395,7 +430,10 @@ function updateVisualizationFromCell(cell, label) {
 }
 
 function playRunTrajectory(payload, label) {
+  const divisionEventsByStep = collectDivisionEventsByStep(payload.events || []);
+  const divisionCount = divisionEventsByStep.size;
   const trajectory = payload.metrics.map(m => ({
+    step: Number(m.step ?? 0),
     name: payload.final_state.cell.name,
     x: Number(m.x ?? 0),
     y: Number(m.y ?? 0),
@@ -404,10 +442,11 @@ function playRunTrajectory(payload, label) {
     membrane_integrity: Number(m.membrane_integrity ?? 1),
     alive: true,
     atp: Number(m.atp ?? 0),
+    divisionEvent: divisionEventsByStep.get(Number(m.step ?? 0)) ?? null,
   }));
   if (trajectory.length) {
     viewer.playTrajectory(trajectory);
-    vizLabelEl.textContent = `${label} (Animated Run)`;
+    vizLabelEl.textContent = `${label} (Animated Run${divisionCount ? ` • ${divisionCount} division${divisionCount === 1 ? "" : "s"}` : ""})`;
   }
 }
 
@@ -443,6 +482,9 @@ class SpaceViewer {
     this.playbackActive = false;
     this.playbackStart = 0;
     this.segmentDurationMs = 100;
+    this.divisionSegmentDurationMs = 280;
+    this.segmentDurations = [];
+    this.divisionEffect = null;
     this.renderCell = { ...this.cell };
 
     this.bindEvents();
@@ -460,7 +502,7 @@ class SpaceViewer {
       const y = e.clientY - rect.top;
       
       const projected = this.project(this.renderCell);
-      const radius = Math.max(12, 20 * this.zoom * projected.scale);
+      const radius = this.getCellRadius(this.renderCell, projected.scale);
       const dist = Math.sqrt((x - projected.x)**2 + (y - projected.y)**2);
 
       // Tight locking: prioritize cell interaction if anywhere near the cell
@@ -505,7 +547,7 @@ class SpaceViewer {
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
       const projected = this.project(this.renderCell);
-      const radius = Math.max(12, 20 * this.zoom * projected.scale);
+      const radius = this.getCellRadius(this.renderCell, projected.scale);
       const dist = Math.sqrt((x - projected.x)**2 + (y - projected.y)**2);
       
       if (dist < radius * 2.5) {
@@ -571,10 +613,18 @@ class SpaceViewer {
     this.ctx.setTransform(this.pixelRatio, 0, 0, this.pixelRatio, 0, 0);
   }
 
+  getCellRadius(cell, projectedScale) {
+    const biomass = Math.max(Number(cell?.biomass ?? 1), 0.05);
+    const scaledRadius = 15 * Math.sqrt(biomass) * this.zoom * projectedScale;
+    return clamp(scaledRadius, 8, 56);
+  }
+
   setCell(cell) {
     this.cell = { ...cell };
     this.renderCell = { ...cell };
     this.trajectory = [];
+    this.segmentDurations = [];
+    this.divisionEffect = null;
     this.playbackActive = false;
   }
 
@@ -582,6 +632,8 @@ class SpaceViewer {
     this.trajectory = trajectory.map(p => ({ ...p }));
     this.cell = { ...this.trajectory[this.trajectory.length - 1] };
     this.renderCell = { ...this.trajectory[0] };
+    this.segmentDurations = this.trajectory.slice(1).map((point) => point.divisionEvent ? this.divisionSegmentDurationMs : this.segmentDurationMs);
+    this.divisionEffect = null;
     this.playbackActive = this.trajectory.length > 1;
     this.playbackStart = performance.now();
   }
@@ -603,18 +655,33 @@ class SpaceViewer {
   advancePlayback() {
     if (!this.playbackActive) return;
     const elapsed = performance.now() - this.playbackStart;
-    const totalDuration = (this.trajectory.length - 1) * this.segmentDurationMs;
+    const totalDuration = this.segmentDurations.reduce((sum, duration) => sum + duration, 0);
     
     if (elapsed >= totalDuration) {
       this.renderCell = { ...this.trajectory[this.trajectory.length - 1] };
+      this.divisionEffect = null;
       this.playbackActive = false;
       this.syncUIToRenderCell();
       return;
     }
 
-    const rawIndex = elapsed / this.segmentDurationMs;
-    const index = Math.floor(rawIndex);
-    const t = rawIndex - index;
+    let remaining = elapsed;
+    let index = 0;
+    while (index < this.segmentDurations.length && remaining >= this.segmentDurations[index]) {
+      remaining -= this.segmentDurations[index];
+      index += 1;
+    }
+
+    if (index >= this.segmentDurations.length) {
+      this.renderCell = { ...this.trajectory[this.trajectory.length - 1] };
+      this.divisionEffect = null;
+      this.playbackActive = false;
+      this.syncUIToRenderCell();
+      return;
+    }
+
+    const segmentDuration = this.segmentDurations[index];
+    const t = segmentDuration > 0 ? remaining / segmentDuration : 1;
     const curr = this.trajectory[index];
     const next = this.trajectory[index + 1];
     
@@ -624,7 +691,14 @@ class SpaceViewer {
       y: curr.y + (next.y - curr.y) * t,
       z: curr.z + (next.z - curr.z) * t,
       atp: curr.atp + (next.atp - curr.atp) * t,
+      biomass: curr.biomass + (next.biomass - curr.biomass) * t,
     };
+    this.divisionEffect = next.divisionEvent ? {
+      progress: t,
+      currentFrame: curr,
+      nextFrame: next,
+      event: next.divisionEvent,
+    } : null;
 
     this.syncUIToRenderCell();
   }
@@ -676,15 +750,72 @@ class SpaceViewer {
   }
 
   drawCell() {
-    const ctx = this.ctx;
     const cell = this.renderCell;
     const projected = this.project(cell);
-    const radius = Math.max(8, 15 * this.zoom * projected.scale);
-    
+    const radius = this.getCellRadius(cell, projected.scale);
+
+    if (this.divisionEffect) this.drawDivisionEffect(projected, radius, cell);
+    else this.drawCellBody(projected, radius, cell);
+
+    const ctx = this.ctx;
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 11px var(--font-sans)";
+    ctx.textAlign = "center";
+    ctx.fillText(cell.name, projected.x, projected.y + radius + 15);
+  }
+
+  drawDivisionEffect(projected, radius, cell) {
+    const effect = this.divisionEffect;
+    const progress = clamp(effect?.progress ?? 0, 0, 1);
+    const pulse = Math.sin(Math.min(progress, 0.5) / 0.5 * Math.PI) * 0.18;
+    const squashWindow = clamp(progress / 0.45, 0, 1);
+    const squash = 1 - (Math.sin(squashWindow * Math.PI) * 0.12);
+    const stretch = 1 + (Math.sin(squashWindow * Math.PI) * 0.12);
+    const splitProgress = clamp((progress - 0.18) / 0.62, 0, 1);
+    const splitFade = Math.sin(splitProgress * Math.PI);
+    const preRadius = this.getCellRadius({ biomass: effect.currentFrame.biomass }, projected.scale);
+    const postRadius = this.getCellRadius({ biomass: effect.nextFrame.biomass }, projected.scale);
+    const daughterRadius = clamp(postRadius * (0.92 + (0.06 * splitFade)), 6, 40);
+    const daughterOffset = (preRadius + postRadius) * (0.25 + (0.45 * splitProgress));
+
+    this.drawCellBody(projected, preRadius * (1 + pulse), cell, {
+      scaleX: stretch,
+      scaleY: squash,
+      alpha: 1 - (splitProgress * 0.2),
+    });
+
+    if (splitProgress > 0) {
+      this.drawCellBody(projected, daughterRadius, cell, {
+        offsetX: -daughterOffset,
+        alpha: 0.48 * splitFade,
+        scaleX: 0.92,
+        scaleY: 1.08,
+      });
+      this.drawCellBody(projected, daughterRadius, cell, {
+        offsetX: daughterOffset,
+        alpha: 0.48 * splitFade,
+        scaleX: 0.92,
+        scaleY: 1.08,
+      });
+    }
+  }
+
+  drawCellBody(projected, radius, cell, options = {}) {
+    const ctx = this.ctx;
+    const alpha = options.alpha ?? 1;
+    const offsetX = options.offsetX ?? 0;
+    const offsetY = options.offsetY ?? 0;
+    const scaleX = options.scaleX ?? 1;
+    const scaleY = options.scaleY ?? 1;
+
+    ctx.save();
+    ctx.translate(projected.x + offsetX, projected.y + offsetY);
+    ctx.scale(scaleX, scaleY);
+    ctx.globalAlpha = alpha;
     ctx.shadowBlur = 20;
     ctx.shadowColor = cell.alive ? "rgba(37, 99, 235, 0.4)" : "rgba(100, 116, 139, 0.4)";
-    
-    const grad = ctx.createRadialGradient(projected.x - radius/3, projected.y - radius/3, radius/4, projected.x, projected.y, radius);
+
+    const grad = ctx.createRadialGradient(-radius / 3, -radius / 3, radius / 4, 0, 0, radius);
     if (cell.alive) {
       grad.addColorStop(0, "#60a5fa");
       grad.addColorStop(1, "#1d4ed8");
@@ -692,22 +823,18 @@ class SpaceViewer {
       grad.addColorStop(0, "#94a3b8");
       grad.addColorStop(1, "#475569");
     }
-    
+
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.arc(projected.x, projected.y, radius, 0, Math.PI * 2);
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
     ctx.fill();
-    
+
     ctx.shadowBlur = 0;
     ctx.fillStyle = "rgba(255,255,255,0.2)";
     ctx.beginPath();
-    ctx.arc(projected.x - radius/3, projected.y - radius/3, radius/4, 0, Math.PI * 2);
+    ctx.arc(-radius / 3, -radius / 3, radius / 4, 0, Math.PI * 2);
     ctx.fill();
-
-    ctx.fillStyle = "#fff";
-    ctx.font = "bold 11px var(--font-sans)";
-    ctx.textAlign = "center";
-    ctx.fillText(cell.name, projected.x, projected.y + radius + 15);
+    ctx.restore();
   }
 
   project(p) {

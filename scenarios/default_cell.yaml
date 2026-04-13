@@ -5,10 +5,21 @@ environment:
   basal_glucose_level: 24.0
   glucose_replenishment_rate: 0.9
   toxicity_rate: 0.04
+  electron_acceptor_concentration: 24.0
+  basal_electron_acceptor_level: 24.0
+  electron_acceptor_replenishment_rate: 0.9
 transport:
   passive_diffusion_rate: 2.6
 metabolism:
   glucose_processing_cap_per_step: 2.1
+  pyruvate_oxidation_cap_per_step: 2.0
+  tca_cycle_cap_per_step: 2.0
+  electron_transport_cap_per_step: 4.0
+  oxidative_phosphorylation_cap_per_step: 4.0
+  gradient_per_nadh: 2.5
+  gradient_per_fadh2: 1.5
+  atp_per_gradient: 1.0
+  membrane_gradient_decay: 0.05
 maintenance:
   basal_atp_cost: 1.9
   membrane_decay: 0.03
@@ -29,6 +40,12 @@ cell:
     glucose: 1.2
     pyruvate: 0.0
     nadh: 0.0
+    acetyl_coa: 0.0
+    nad_plus: 10.0
+    fad: 4.0
+    fadh2: 0.0
+    co2: 0.0
+    membrane_gradient: 0.0
   waste: 0.1
   membrane_integrity: 0.96
   glucose_transporter_density: 1.1

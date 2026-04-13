@@ -6,7 +6,7 @@ scientifically anchored, prokaryote-like cell model.
 ## What It Does
 
 - Loads typed YAML scenarios.
-- Validates world, cell, transport, cytosol, and glycolysis parameters.
+- Validates world, cell, transport, cytosol, glycolysis, and respiration parameters.
 - Runs discrete-time simulations with deterministic seeds.
 - Emits structured JSON artifacts for metrics, events, and final state.
 - Exposes both a Python API and a CLI.
@@ -55,8 +55,10 @@ The v2 engine models a simple prokaryote-like cell with:
 - environmental glucose maintained around a basal level
 - passive glucose transport across the membrane into the cytosol
 - glycolysis that converts glucose into pyruvate, ATP, and NADH
+- coarse pyruvate oxidation, TCA cycle, electron transport, and oxidative phosphorylation
 - ATP consumption for maintenance, repair, and growth
 - membrane integrity loss and repair
+- generic terminal electron acceptor availability for downstream carrier oxidation
 - viability checks driven by explicit termination conditions
 
 This is biology-inspired and scientifically anchored, but it is not intended to
