@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -43,7 +44,57 @@ def test_write_bi_bundle_writes_parquet_and_powerbi_without_csv(tmp_path):
     assert manifest.row_counts["run_intelligence"] == 1
     assert (tmp_path / "parquet" / "runs.parquet").exists()
     assert (tmp_path / "powerbi" / "preon-cell-analytics.pbip").exists()
-    assert (tmp_path / "powerbi" / "preon-cell-analytics.pbit").exists()
+    assert not (tmp_path / "powerbi" / "preon-cell-analytics.pbit").exists()
+    pbip = json.loads((tmp_path / "powerbi" / "preon-cell-analytics.pbip").read_text(encoding="utf-8"))
+    pbir = json.loads(
+        (tmp_path / "powerbi" / "preon-cell-analytics.Report" / "definition.pbir").read_text(encoding="utf-8")
+    )
+    report_definition = json.loads(
+        (tmp_path / "powerbi" / "preon-cell-analytics.Report" / "definition" / "report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    pages = json.loads(
+        (tmp_path / "powerbi" / "preon-cell-analytics.Report" / "definition" / "pages" / "pages.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    page = json.loads(
+        (
+            tmp_path
+            / "powerbi"
+            / "preon-cell-analytics.Report"
+            / "definition"
+            / "pages"
+            / "ReportSection"
+            / "page.json"
+        ).read_text(encoding="utf-8")
+    )
+    pbism = json.loads(
+        (tmp_path / "powerbi" / "preon-cell-analytics.SemanticModel" / "definition.pbism").read_text(encoding="utf-8")
+    )
+    assert pbip["$schema"].endswith("/fabric/pbip/pbipProperties/1.0.0/schema.json")
+    assert pbip["artifacts"] == [{"report": {"path": "preon-cell-analytics.Report"}}]
+    assert pbir["$schema"].endswith("/fabric/item/report/definitionProperties/2.0.0/schema.json")
+    assert pbir["datasetReference"]["byPath"]["path"] == "../preon-cell-analytics.SemanticModel"
+    assert report_definition["$schema"].endswith("/fabric/item/report/definition/report/1.0.0/schema.json")
+    assert report_definition["layoutOptimization"] == "None"
+    assert pages == {
+        "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/pagesMetadata/1.0.0/schema.json",
+        "activePageName": "ReportSection",
+        "pageOrder": ["ReportSection"],
+    }
+    assert page["name"] == "ReportSection"
+    assert page["displayName"] == "Overview"
+    assert pbism == {
+        "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/semanticModel/definitionProperties/1.0.0/schema.json",
+        "version": "1.0",
+    }
+    with ZipFile(zip_path) as archive:
+        names = archive.namelist()
+    assert "powerbi/preon-cell-analytics.Report/definition/report.json" in names
+    assert "powerbi/preon-cell-analytics.Report/definition/pages/ReportSection/page.json" in names
+    assert "powerbi/preon-cell-analytics.pbit" not in names
     assert zip_path.exists()
     assert "parquet" in manifest.formats
     assert "parquet" in manifest.files

@@ -98,6 +98,9 @@ def test_run_endpoint_returns_population_artifacts():
     assert payload["snapshots"][0]["state"]["cells"]
     assert payload["metrics"]
     assert payload["metadata"]["run_id"].startswith("run-")
+    runs_response = client.get("/api/runs")
+    assert runs_response.status_code == 200
+    assert any(run["run_id"] == payload["metadata"]["run_id"] for run in runs_response.json()["runs"])
 
 
 def test_run_endpoint_rejects_non_positive_max_steps():
@@ -258,6 +261,20 @@ def test_run_stream_replays_metric_steps():
         complete_seen = first["type"] == "complete"
 
     assert complete_seen is True
+
+
+def test_run_updates_websocket_broadcasts_created_runs():
+    scenario = client.get("/api/default-scenario").json()["scenario"]
+
+    with client.websocket_connect("/api/runs/updates") as websocket:
+        response = client.post("/api/runs", json={"scenario": scenario, "seed": 5, "max_steps": 2})
+        assert response.status_code == 200
+        run_id = response.json()["run"]["run_id"]
+        message = websocket.receive_json()
+
+    assert message["type"] == "run_created"
+    assert message["run"]["run_id"] == run_id
+    assert message["storage"]["mode"] in {"postgres", "memory"}
 
 
 def test_root_serves_frontend():

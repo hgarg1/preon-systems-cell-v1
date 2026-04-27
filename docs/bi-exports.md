@@ -41,7 +41,7 @@ Every table includes `run_id` and `scenario_name`.
 
 ## Power BI
 
-Open `powerbi/preon-cell-analytics.pbip` in Power BI Desktop. The semantic model imports the sibling Parquet dataset generated in the same bundle. After validating the model locally, use Power BI Desktop to save a `.pbit` template if a distributable binary template is required.
+Open `powerbi/preon-cell-analytics.pbip` in Power BI Desktop. The semantic model imports the sibling Parquet dataset generated in the same bundle. `.pbit` files are Power BI binary template packages and are not generated directly; after validating the project locally, use Power BI Desktop to save a `.pbit` template if a distributable template is required.
 
 ## Tableau
 

@@ -10,6 +10,7 @@ import tempfile
 
 from fastapi import FastAPI, HTTPException
 from fastapi import Query, WebSocket
+from fastapi import WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
@@ -27,6 +28,7 @@ from preon_systems_cell.models import (
     Event,
     EventType,
     RunComparisonResponse,
+    RunArtifacts,
     RunIntelligence,
     RunTimeSeriesResponse,
     Scenario,
@@ -86,6 +88,7 @@ def create_app() -> FastAPI:
         description="HTTP API and small web UI for the deterministic glucose-centric cell simulator.",
         lifespan=lifespan,
     )
+    app.state.run_update_clients = set()
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/health")
@@ -128,17 +131,9 @@ def create_app() -> FastAPI:
         return transition.model_dump(mode="json")
 
     @app.post("/api/run")
-    def run(request: RunRequest) -> dict[str, object]:
-        report = validate_scenario(request.scenario)
-        if not report.valid:
-            raise HTTPException(status_code=422, detail=report.errors)
-
-        artifacts = run_simulation(
-            scenario=request.scenario,
-            seed=request.seed,
-            max_steps=request.max_steps,
-            dt=request.dt,
-        )
+    async def run(request: RunRequest) -> dict[str, object]:
+        run_record, artifacts = await _create_materialized_run(app, request)
+        await _broadcast_run_created(app, run_record)
         return artifacts.model_dump(mode="json")
 
     @app.get("/api/runs")
@@ -152,33 +147,10 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs")
     async def create_run(request: RunRequest) -> dict[str, object]:
-        report = validate_scenario(request.scenario)
-        if not report.valid:
-            raise HTTPException(status_code=422, detail=report.errors)
-        storage = _storage_manager(app)
-        repository = InMemoryRunRepository() if storage.postgres is not None else storage.memory
-        artifacts = run_simulation(
-            scenario=request.scenario,
-            seed=request.seed,
-            max_steps=request.max_steps,
-            dt=request.dt,
-            repository=repository,
-        )
-        run_record = repository.get_run(artifacts.metadata.run_id)
-        if storage.postgres is not None and run_record is not None:
-            await storage.postgres.save_artifacts(run_record, artifacts)
-            logger.info(
-                "run_persisted",
-                extra={
-                    "run_id": run_record.run_id,
-                    "storage_mode": storage.status.mode,
-                    "metric_count": len(artifacts.metrics),
-                    "event_count": len(artifacts.events),
-                    "cell_count": len(artifacts.final_state.cells),
-                },
-            )
+        run_record, artifacts = await _create_materialized_run(app, request)
+        await _broadcast_run_created(app, run_record)
         return {
-            "run": run_record.model_dump(mode="json") if run_record is not None else None,
+            "run": run_record.model_dump(mode="json"),
             "final_state": artifacts.final_state.model_dump(mode="json"),
             "termination_reason": artifacts.termination_reason.value,
         }
@@ -312,6 +284,19 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
             pairs.append((run_record, artifacts))
         return compare_runs(pairs, resolution=resolution, from_step=from_step, to_step=to_step)
+
+    @app.websocket("/api/runs/updates")
+    async def stream_run_updates(websocket: WebSocket) -> None:
+        await websocket.accept()
+        clients = _run_update_clients(app)
+        clients.add(websocket)
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            clients.discard(websocket)
+        except Exception:
+            clients.discard(websocket)
 
     @app.get("/api/runs/{run_id}")
     async def get_run(run_id: str) -> dict[str, object]:
@@ -528,6 +513,68 @@ def _parse_compare_run_ids(raw: str) -> list[str]:
 def _validate_step_window(from_step: int, to_step: int | None) -> None:
     if to_step is not None and to_step < from_step:
         raise HTTPException(status_code=422, detail="to_step must be greater than or equal to from_step")
+
+
+async def _create_materialized_run(app: FastAPI, request: RunRequest) -> tuple[RunRecord, RunArtifacts]:
+    report = validate_scenario(request.scenario)
+    if not report.valid:
+        raise HTTPException(status_code=422, detail=report.errors)
+
+    storage = _storage_manager(app)
+    repository = InMemoryRunRepository() if storage.postgres is not None else storage.memory
+    artifacts = run_simulation(
+        scenario=request.scenario,
+        seed=request.seed,
+        max_steps=request.max_steps,
+        dt=request.dt,
+        repository=repository,
+    )
+    run_record = repository.get_run(artifacts.metadata.run_id)
+    if run_record is None:
+        raise HTTPException(status_code=500, detail="run was created without a run record")
+
+    if storage.postgres is not None:
+        await storage.postgres.save_artifacts(run_record, artifacts)
+        logger.info(
+            "run_persisted",
+            extra={
+                "run_id": run_record.run_id,
+                "storage_mode": storage.status.mode,
+                "metric_count": len(artifacts.metrics),
+                "event_count": len(artifacts.events),
+                "cell_count": len(artifacts.final_state.cells),
+            },
+        )
+    return run_record, artifacts
+
+
+def _run_update_clients(app: FastAPI) -> set[WebSocket]:
+    clients = getattr(app.state, "run_update_clients", None)
+    if clients is None:
+        clients = set()
+        app.state.run_update_clients = clients
+    return clients
+
+
+async def _broadcast_run_created(app: FastAPI, run_record: RunRecord) -> None:
+    clients = set(_run_update_clients(app))
+    if not clients:
+        return
+
+    storage = _storage_manager(app)
+    payload = {
+        "type": "run_created",
+        "run": run_record.model_dump(mode="json"),
+        "storage": storage.status.model_dump(),
+    }
+    stale_clients = []
+    for websocket in clients:
+        try:
+            await websocket.send_json(payload)
+        except Exception:
+            stale_clients.append(websocket)
+    for websocket in stale_clients:
+        _run_update_clients(app).discard(websocket)
 
 
 def _effective_scenario(scenario: Scenario, dt: float | None) -> Scenario:

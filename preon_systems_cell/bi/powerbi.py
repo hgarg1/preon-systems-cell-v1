@@ -3,10 +3,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from zipfile import ZIP_DEFLATED, ZipFile
 
 
 POWERBI_PROJECT_NAME = "preon-cell-analytics"
+PBIP_SCHEMA = "https://developer.microsoft.com/json-schemas/fabric/pbip/pbipProperties/1.0.0/schema.json"
+PBIR_SCHEMA = "https://developer.microsoft.com/json-schemas/fabric/item/report/definitionProperties/2.0.0/schema.json"
+PBISM_SCHEMA = "https://developer.microsoft.com/json-schemas/fabric/item/semanticModel/definitionProperties/1.0.0/schema.json"
+PBIR_VERSION_SCHEMA = "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/versionMetadata/1.0.0/schema.json"
+PBIR_REPORT_SCHEMA = "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/report/1.0.0/schema.json"
+PBIR_PAGES_SCHEMA = "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/pagesMetadata/1.0.0/schema.json"
+PBIR_PAGE_SCHEMA = "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/page/1.0.0/schema.json"
+REPORT_PAGE_NAME = "ReportSection"
 
 
 def write_powerbi_project(directory: str | Path, tables: dict[str, list[dict[str, Any]]]) -> list[Path]:
@@ -16,39 +23,80 @@ def write_powerbi_project(directory: str | Path, tables: dict[str, list[dict[str
     pbip_path = destination / f"{POWERBI_PROJECT_NAME}.pbip"
     semantic_dir = destination / f"{POWERBI_PROJECT_NAME}.SemanticModel"
     report_dir = destination / f"{POWERBI_PROJECT_NAME}.Report"
+    report_definition_dir = report_dir / "definition"
+    report_pages_dir = report_definition_dir / "pages" / REPORT_PAGE_NAME
     semantic_dir.mkdir(parents=True, exist_ok=True)
     report_dir.mkdir(parents=True, exist_ok=True)
+    report_pages_dir.mkdir(parents=True, exist_ok=True)
 
     written = [
         _write_json(pbip_path, _pbip_payload()),
         _write_json(report_dir / "definition.pbir", _report_payload()),
+        _write_json(report_definition_dir / "version.json", _report_definition_version_payload()),
+        _write_json(report_definition_dir / "report.json", _report_definition_payload()),
+        _write_json(report_definition_dir / "pages" / "pages.json", _report_pages_payload()),
+        _write_json(report_pages_dir / "page.json", _report_page_payload()),
         _write_json(semantic_dir / "definition.pbism", _semantic_payload()),
         _write_json(semantic_dir / "model.bim", _model_payload(tables)),
         _write_readme(destination / "README.md"),
     ]
-    written.append(_write_pbit(destination / f"{POWERBI_PROJECT_NAME}.pbit", written, destination))
     return written
 
 
 def _pbip_payload() -> dict[str, Any]:
     return {
+        "$schema": PBIP_SCHEMA,
         "version": "1.0",
         "artifacts": [
             {"report": {"path": f"{POWERBI_PROJECT_NAME}.Report"}},
-            {"semanticModel": {"path": f"{POWERBI_PROJECT_NAME}.SemanticModel"}},
         ],
     }
 
 
 def _report_payload() -> dict[str, Any]:
     return {
+        "$schema": PBIR_SCHEMA,
         "version": "4.0",
         "datasetReference": {"byPath": {"path": f"../{POWERBI_PROJECT_NAME}.SemanticModel"}},
     }
 
 
 def _semantic_payload() -> dict[str, Any]:
-    return {"version": "1.0", "artifacts": [{"path": "model.bim"}]}
+    return {"$schema": PBISM_SCHEMA, "version": "1.0"}
+
+
+def _report_definition_version_payload() -> dict[str, Any]:
+    return {"$schema": PBIR_VERSION_SCHEMA, "version": "1.0.0"}
+
+
+def _report_definition_payload() -> dict[str, Any]:
+    return {
+        "$schema": PBIR_REPORT_SCHEMA,
+        "layoutOptimization": "None",
+        "themeCollection": {
+            "baseTheme": {
+                "name": "CY24SU06",
+                "reportVersionAtImport": "5.55",
+                "type": "SharedResources",
+            }
+        },
+        "settings": {},
+    }
+
+
+def _report_pages_payload() -> dict[str, Any]:
+    return {"$schema": PBIR_PAGES_SCHEMA, "activePageName": REPORT_PAGE_NAME, "pageOrder": [REPORT_PAGE_NAME]}
+
+
+def _report_page_payload() -> dict[str, Any]:
+    return {
+        "$schema": PBIR_PAGE_SCHEMA,
+        "displayName": "Overview",
+        "displayOption": "FitToPage",
+        "height": 720,
+        "name": REPORT_PAGE_NAME,
+        "width": 1280,
+    }
 
 
 def _model_payload(tables: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
@@ -122,17 +170,10 @@ def _write_readme(path: Path) -> Path:
                 "",
                 "Open `preon-cell-analytics.pbip` in Power BI Desktop.",
                 "The semantic model imports the sibling `../parquet` dataset generated in the same export bundle.",
-                "`preon-cell-analytics.pbit` is a packaged copy of the generated project files for handoff workflows.",
+                "If a `.pbit` template is required, open the `.pbip` first and save a template from Power BI Desktop.",
                 "",
             ]
         ),
         encoding="utf-8",
     )
-    return path
-
-
-def _write_pbit(path: Path, project_files: list[Path], root: Path) -> Path:
-    with ZipFile(path, "w", compression=ZIP_DEFLATED) as archive:
-        for file_path in project_files:
-            archive.write(file_path, file_path.relative_to(root).as_posix())
     return path

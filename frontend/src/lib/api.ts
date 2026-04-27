@@ -227,7 +227,16 @@ export interface RunExportsResponse {
   manifest: ExportManifest | null;
 }
 
+export interface RunCreatedEvent {
+  type: "run_created";
+  run: RunRecord;
+  storage: StorageStatus;
+}
+
+export type RunUpdateEvent = RunCreatedEvent;
+
 const API_PREFIX = "/backend";
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 
 export async function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
   return apiFetch<HealthResponse>("/health", { signal });
@@ -372,6 +381,12 @@ export async function createRunExport(
 
 export function getRunExportDownloadUrl(runId: string, format: string): string {
   return `${API_PREFIX}/api/runs/${encodeURIComponent(runId)}/exports/${encodeURIComponent(format)}/download`;
+}
+
+export function getRunUpdatesWebSocketUrl(): string {
+  const url = new URL("/api/runs/updates", API_BASE_URL);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
